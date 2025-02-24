@@ -27,20 +27,30 @@ class CCCClient:
             "fullStatement": "Use spelling patterns and generalizations..."
         }
         """
+        print(f"Attempting to fetch standard: {standard_code}")
+        print(f"Using API URL: {self.base_url}")
+        
         async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{self.base_url}/standards/items",
-                params={"keyword": standard_code}
-            )
-            
-            if response.status_code != 200:
-                raise CCCError(f"Failed to fetch standard: {response.text}")
-            
-            standards = response.json()
-            if not standards:
-                raise CCCError(f"No standard found for code: {standard_code}")
+            try:
+                response = await client.get(
+                    f"{self.base_url}/standards/items",
+                    params={"keyword": standard_code}
+                )
                 
-            return standards[0]
+                print(f"API Response Status: {response.status_code}")
+                print(f"API Response: {response.text}")
+                
+                if response.status_code != 200:
+                    raise CCCError(f"Failed to fetch standard: {response.text}")
+                
+                standards = response.json()
+                if not standards:
+                    raise CCCError(f"No standard found for code: {standard_code}")
+                    
+                return standards[0]
+            except httpx.RequestError as e:
+                print(f"HTTP Request failed: {str(e)}")
+                raise CCCError(f"Failed to connect to CCC API: {str(e)}")
 
     async def get_content_for_standard(self, cf_item_id: str) -> List[Dict[str, Any]]:
         """
