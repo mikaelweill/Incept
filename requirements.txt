@@ -1,0 +1,21 @@
+# Core Web Framework
+fastapi==0.104.1  # Latest stable version with good community adoption
+uvicorn==0.24.0   # Matches FastAPI recommendations
+
+# Environment & HTTP
+python-dotenv==1.0.0  # Stable version for env management
+httpx==0.25.2        # Async HTTP client, preferred over requests for FastAPI
+
+# Data Validation
+pydantic==2.4.2    # Version compatible with FastAPI 0.104.1
+
+# Testing
+pytest==7.4.3      # Stable testing framework
+
+# AI Integration
+openai==1.3.0      # Latest stable version for GPT-4 access
+
+# Development Tools
+black==23.11.0     # Code formatting
+isort==5.12.0      # Import sorting
+flake8==6.1.0      # Linting 
