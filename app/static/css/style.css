@@ -642,6 +642,24 @@ h3 {
     position: relative;
 }
 
+.mini-viz-container .error-message {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    color: #d32f2f;
+    padding: 10px;
+    width: 80%;
+}
+
+.mini-viz-container .spinner {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
 /* Dashboard card layouts */
 .dashboard-row {
     display: flex;

@@ -124,140 +124,354 @@ function updateProgressBar(id, value, max) {
  * Initialize mini visualization for the dashboard
  */
 function initMiniVisualization() {
-    console.log("Initializing mini visualization...");
+    console.log("Initializing grade distribution charts...");
     
     const container = document.getElementById('mini-visualization');
     if (!container) {
-        console.warn("Mini visualization container not found");
+        console.warn("Visualization container not found");
         return;
     }
     
-    // Show loading indicator for mini visualization
-    container.innerHTML = '<div class="spinner"></div><p>Loading...</p>';
+    // Show loading indicator
+    container.innerHTML = '<div class="spinner"></div><p>Loading data...</p>';
     
-    // Fetch a limited set of data for the mini visualization
-    fetchFromAPI('/api/structure')
-        .then(data => {
-            console.log("Mini visualization data loaded:", { 
-                nodeCount: data.nodes ? data.nodes.length : 0, 
-                linkCount: data.links ? data.links.length : 0 
-            });
-            
-            if (!data || !data.nodes || !data.links) {
-                throw new Error("Invalid structure data received");
-            }
-            
-            // Limit data size for mini visualization (max 50 nodes)
-            let nodes = data.nodes;
-            let links = data.links;
-            
-            if (nodes.length > 50) {
-                // Filter to keep only standard and lesson nodes, not content items
-                nodes = nodes.filter(node => 
-                    node.type === 'standard' || node.type === 'lesson'
-                ).slice(0, 50);
-                
-                // Keep only links between the remaining nodes
-                const nodeIds = new Set(nodes.map(node => node.id));
-                links = links.filter(link => 
-                    nodeIds.has(link.source.id || link.source) && 
-                    nodeIds.has(link.target.id || link.target)
-                );
-            }
-            
-            createMiniVisualization(container, nodes, links);
-        })
-        .catch(error => {
-            console.error("Error loading mini visualization:", error);
-            container.innerHTML = `<div class="error-message">Error loading mini visualization: ${error.message || 'Unknown error'}</div>`;
+    // We need both standards and lessons data for the charts
+    Promise.all([
+        fetchFromAPI('/api/standards'),
+        fetchFromAPI('/api/lessons')
+    ])
+    .then(([standards, lessons]) => {
+        console.log("Distribution data loaded:", { 
+            standardsCount: standards ? standards.length : 0, 
+            lessonsCount: lessons ? lessons.length : 0 
         });
+        
+        if (!standards || standards.length === 0 || !lessons || lessons.length === 0) {
+            throw new Error("Missing data for distribution charts");
+        }
+        
+        // Group standards and lessons by grade
+        const gradeData = processGradeData(standards, lessons);
+        
+        // Create the charts
+        createGradeDistributionCharts(container, gradeData);
+    })
+    .catch(error => {
+        console.error("Error loading grade distribution data:", error);
+        container.innerHTML = `
+            <div class="error-message">
+                Error loading distribution data: ${error.message || 'Unknown error'}
+                <br>
+                <small>Please check browser console for details</small>
+            </div>
+        `;
+    });
 }
 
 /**
- * Create a small force-directed graph visualization
- * @param {HTMLElement} container - The container element
- * @param {Array} nodes - Node data
- * @param {Array} links - Link data
+ * Process standards and lessons data to group by grade
  */
-function createMiniVisualization(container, nodes, links) {
-    // Clear the container
+function processGradeData(standards, lessons) {
+    // Create a map to hold data for each grade
+    const gradeMap = new Map();
+    
+    // Process lessons to count by grade
+    lessons.forEach(lesson => {
+        const grade = lesson.grade || 'Unspecified';
+        
+        if (!gradeMap.has(grade)) {
+            gradeMap.set(grade, { 
+                grade,
+                lessons: 0,
+                standards: 0,
+                standardCodes: new Set(),
+                sortOrder: getSortOrder(grade) // Add sort order for better sorting
+            });
+        }
+        
+        const gradeData = gradeMap.get(grade);
+        gradeData.lessons++;
+        
+        // Add standard code to the set if present
+        if (lesson.standard_code) {
+            gradeData.standardCodes.add(lesson.standard_code);
+        }
+    });
+    
+    // Convert the set of standard codes to a count
+    gradeMap.forEach(data => {
+        data.standards = data.standardCodes.size;
+        delete data.standardCodes; // Clean up the set as we don't need it anymore
+    });
+    
+    // Convert map to array and sort by grade properly
+    let gradesArray = Array.from(gradeMap.values());
+    
+    // Sort by our custom sort order
+    gradesArray.sort((a, b) => a.sortOrder - b.sortOrder);
+    
+    return gradesArray;
+}
+
+/**
+ * Get a numeric sort order for grades
+ */
+function getSortOrder(grade) {
+    if (grade === 'K' || grade === 'Kindergarten') {
+        return 0;
+    }
+    
+    if (grade === 'Unspecified') {
+        return 1000; // Put at the end
+    }
+    
+    // Try to extract numeric value
+    const num = parseInt(grade);
+    if (!isNaN(num)) {
+        return num;
+    }
+    
+    // For any other format, default to string comparison position (less important)
+    return 500;
+}
+
+/**
+ * Create bar charts to show distribution by grade level
+ */
+function createGradeDistributionCharts(container, gradeData) {
+    // Clear container and set up layout
     container.innerHTML = '';
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column';
     
-    // Set dimensions based on container
-    const width = container.clientWidth;
-    const height = container.clientHeight || 250;
+    // Create heading
+    const heading = document.createElement('h4');
+    heading.textContent = 'Standards & Lessons by Grade Level';
+    heading.style.textAlign = 'center';
+    heading.style.marginBottom = '10px';
+    container.appendChild(heading);
     
-    // Create SVG element
-    const svg = d3.select(container)
-        .append('svg')
-        .attr('width', width)
-        .attr('height', height)
-        .attr('viewBox', [0, 0, width, height]);
+    // Create chart container with enough height to accommodate everything
+    const chartContainer = document.createElement('div');
+    chartContainer.style.flex = '1';
+    chartContainer.style.display = 'flex';
+    chartContainer.style.flexDirection = 'column';
+    chartContainer.style.minHeight = '350px'; // Ensure minimum height
+    chartContainer.style.overflow = 'visible'; // Allow overflow to prevent cutting
+    container.appendChild(chartContainer);
     
-    // Define colors for node types
-    const nodeColors = {
-        'standard': '#4285F4', // Blue
-        'lesson': '#34A853',   // Green
-        'question': '#FBBC05', // Yellow
-        'article': '#EA4335'   // Red
-    };
-    
-    // Create a simulation with forces
-    const simulation = d3.forceSimulation(nodes)
-        .force('link', d3.forceLink(links).id(d => d.id).distance(30))
-        .force('charge', d3.forceManyBody().strength(-100))
-        .force('center', d3.forceCenter(width / 2, height / 2))
-        .force('collision', d3.forceCollide().radius(10));
-    
-    // Create the links
-    const link = svg.append('g')
-        .selectAll('line')
-        .data(links)
-        .enter().append('line')
-        .attr('stroke', '#999')
-        .attr('stroke-opacity', 0.6)
-        .attr('stroke-width', 1);
-    
-    // Create the nodes
-    const node = svg.append('g')
-        .selectAll('circle')
-        .data(nodes)
-        .enter().append('circle')
-        .attr('r', d => d.type === 'standard' ? 6 : 4)
-        .attr('fill', d => nodeColors[d.type] || '#999')
-        .attr('stroke', '#fff')
-        .attr('stroke-width', 1)
-        .append('title')
-        .text(d => {
-            if (d.type === 'standard') {
-                return `Standard: ${d.data.code}`;
-            } else if (d.type === 'lesson') {
-                return `Lesson: ${d.data.title || 'Unnamed'}`;
+    try {
+        // Prepare data for D3
+        if (!gradeData || gradeData.length === 0) {
+            throw new Error("No grade data available");
+        }
+        
+        // Create cleaner grade display names
+        gradeData.forEach(d => {
+            // Format grade names to be more readable (e.g., "8th Grade" instead of "8")
+            if (!isNaN(parseInt(d.grade))) {
+                const num = parseInt(d.grade);
+                const suffix = getSuffix(num);
+                d.displayName = `${num}${suffix} Grade`;
+            } else if (d.grade === 'K') {
+                d.displayName = 'Kindergarten';
             } else {
-                return d.data.title || d.type;
+                d.displayName = d.grade;
             }
         });
-    
-    // Add interactivity - hover effect
-    node.on('mouseover', function(event, d) {
-        d3.select(this).attr('r', d => d.type === 'standard' ? 8 : 6);
-    })
-    .on('mouseout', function(event, d) {
-        d3.select(this).attr('r', d => d.type === 'standard' ? 6 : 4);
-    });
-    
-    // Update positions on simulation tick
-    simulation.on('tick', () => {
-        link
-            .attr('x1', d => d.source.x)
-            .attr('y1', d => d.source.y)
-            .attr('x2', d => d.target.x)
-            .attr('y2', d => d.target.y);
         
-        node
-            .attr('cx', d => d.x)
-            .attr('cy', d => d.y);
-    });
+        // Set up dimensions with even more space for labels
+        const margin = { top: 30, right: 40, bottom: 100, left: 60 };
+        const width = container.clientWidth - margin.left - margin.right;
+        const height = 280 - margin.top - margin.bottom; // Further increased height
+        
+        // Create SVG for the chart - make it a bit taller
+        const svg = d3.select(chartContainer)
+            .append('svg')
+            .attr('width', width + margin.left + margin.right)
+            .attr('height', height + margin.top + margin.bottom)
+            .append('g')
+            .attr('transform', `translate(${margin.left},${margin.top})`);
+        
+        // Create x scale (for grade names)
+        const x = d3.scaleBand()
+            .domain(gradeData.map(d => d.displayName))
+            .range([0, width])
+            .padding(0.3);
+        
+        // Create y scale (for counts)
+        const y = d3.scaleLinear()
+            .domain([0, d3.max(gradeData, d => Math.max(d.standards, d.lessons)) * 1.1]) // Add 10% headroom
+            .nice()
+            .range([height, 0]);
+        
+        // Add background grid for better readability
+        svg.append('g')
+            .attr('class', 'grid')
+            .selectAll('line')
+            .data(y.ticks(5))
+            .enter()
+            .append('line')
+            .attr('x1', 0)
+            .attr('x2', width)
+            .attr('y1', d => y(d))
+            .attr('y2', d => y(d))
+            .attr('stroke', '#e0e0e0')
+            .attr('stroke-width', 1)
+            .attr('stroke-dasharray', '3,3');
+        
+        // Create x-axis with better positioned labels
+        svg.append('g')
+            .attr('transform', `translate(0,${height})`)
+            .call(d3.axisBottom(x))
+            .selectAll('text')
+            .attr('transform', 'rotate(-25)')
+            .attr('dy', '0.9em')
+            .attr('dx', '-0.5em')
+            .style('text-anchor', 'end')
+            .style('font-size', '12px');
+        
+        // Create y-axis with grid lines
+        svg.append('g')
+            .call(d3.axisLeft(y).ticks(5).tickFormat(d => d))
+            .call(g => g.select('.domain').attr('stroke-width', 2));
+        
+        // Y-axis label
+        svg.append('text')
+            .attr('transform', 'rotate(-90)')
+            .attr('y', -margin.left + 20)
+            .attr('x', -height / 2)
+            .attr('text-anchor', 'middle')
+            .style('font-size', '13px')
+            .style('font-weight', 'bold')
+            .text('Count');
+        
+        // Create bars for standards
+        svg.selectAll('.bar-standards')
+            .data(gradeData)
+            .enter()
+            .append('rect')
+            .attr('class', 'bar-standards')
+            .attr('x', d => x(d.displayName))
+            .attr('width', x.bandwidth() / 2)
+            .attr('y', d => y(d.standards))
+            .attr('height', d => height - y(d.standards))
+            .attr('fill', '#4285F4') // Blue for standards
+            .attr('stroke', '#3a76d8')
+            .attr('stroke-width', 1);
+        
+        // Create bars for lessons
+        svg.selectAll('.bar-lessons')
+            .data(gradeData)
+            .enter()
+            .append('rect')
+            .attr('class', 'bar-lessons')
+            .attr('x', d => x(d.displayName) + x.bandwidth() / 2)
+            .attr('width', x.bandwidth() / 2)
+            .attr('y', d => y(d.lessons))
+            .attr('height', d => height - y(d.lessons))
+            .attr('fill', '#34A853') // Green for lessons
+            .attr('stroke', '#2d9249')
+            .attr('stroke-width', 1);
+        
+        // Add values on top of bars for better readability
+        svg.selectAll('.text-standards')
+            .data(gradeData)
+            .enter()
+            .append('text')
+            .attr('class', 'text-standards')
+            .attr('x', d => x(d.displayName) + x.bandwidth() / 4)
+            .attr('y', d => y(d.standards) - 5)
+            .attr('text-anchor', 'middle')
+            .style('font-size', '11px')
+            .style('font-weight', 'bold')
+            .style('display', d => d.standards > 0 ? 'block' : 'none')
+            .text(d => d.standards);
+        
+        svg.selectAll('.text-lessons')
+            .data(gradeData)
+            .enter()
+            .append('text')
+            .attr('class', 'text-lessons')
+            .attr('x', d => x(d.displayName) + (x.bandwidth() * 3/4))
+            .attr('y', d => y(d.lessons) - 5)
+            .attr('text-anchor', 'middle')
+            .style('font-size', '11px')
+            .style('font-weight', 'bold')
+            .style('display', d => d.lessons > 0 ? 'block' : 'none')
+            .text(d => d.lessons);
+        
+        // Better positioned legend at the top
+        const legend = svg.append('g')
+            .attr('transform', `translate(${width - 160}, -20)`);
+        
+        // Add legend background for better visibility
+        legend.append('rect')
+            .attr('x', -5)
+            .attr('y', -5)
+            .attr('width', 165)
+            .attr('height', 30)
+            .attr('fill', 'white')
+            .attr('stroke', '#e0e0e0')
+            .attr('stroke-width', 1)
+            .attr('rx', 4);
+        
+        // Legend - Standards
+        legend.append('rect')
+            .attr('x', 5)
+            .attr('y', 5)
+            .attr('width', 14)
+            .attr('height', 14)
+            .attr('fill', '#4285F4');
+        
+        legend.append('text')
+            .attr('x', 25)
+            .attr('y', 12)
+            .attr('dy', '.35em')
+            .style('font-size', '12px')
+            .text('Standards');
+        
+        // Legend - Lessons
+        legend.append('rect')
+            .attr('x', 95)
+            .attr('y', 5)
+            .attr('width', 14)
+            .attr('height', 14)
+            .attr('fill', '#34A853');
+        
+        legend.append('text')
+            .attr('x', 115)
+            .attr('y', 12)
+            .attr('dy', '.35em')
+            .style('font-size', '12px')
+            .text('Lessons');
+        
+    } catch (error) {
+        console.error("Error creating grade distribution chart:", error);
+        container.innerHTML = `
+            <div class="error-message">
+                Error creating chart: ${error.message}
+                <br>
+                <small>Please check browser console for details</small>
+            </div>
+        `;
+    }
+}
+
+/**
+ * Get the appropriate ordinal suffix for a number (1st, 2nd, 3rd, etc.)
+ */
+function getSuffix(num) {
+    if (num >= 11 && num <= 13) {
+        return 'th';
+    }
+    
+    switch (num % 10) {
+        case 1: return 'st';
+        case 2: return 'nd';
+        case 3: return 'rd';
+        default: return 'th';
+    }
 }
 
 // Initialize the dashboard when the DOM is loaded
