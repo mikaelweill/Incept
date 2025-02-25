@@ -182,8 +182,11 @@ h3 {
 }
 
 .standard-description, .lesson-description {
-    font-size: 0.9rem;
-    color: #6c757d;
+    font-size: 0.95rem;
+    color: #495057;
+    line-height: 1.5;
+    margin-top: 0.25rem;
+    margin-bottom: 0.75rem;
 }
 
 .filter-container {

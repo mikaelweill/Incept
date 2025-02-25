@@ -90,11 +90,9 @@
                 
                 // Fetch lessons data
                 const lessons = await fetchFromAPI('/api/lessons');
-                console.log('Lessons data:', lessons);
                 
                 // Fetch standards data for filtering
                 const standards = await fetchFromAPI('/api/standards');
-                console.log('Standards data:', standards);
                 
                 if (!lessons || lessons.length === 0) {
                     throw new Error('No lessons data available');
@@ -112,12 +110,27 @@
                 const standardsMap = {};
                 
                 standards.forEach(standard => {
+                    // Use the correct field for key mapping - standard.code should match lesson.standard_code
                     standardsMap[standard.code] = standard;
                     const option = document.createElement('option');
                     option.value = standard.code;
                     option.textContent = standard.code;
                     standardFilter.appendChild(option);
                 });
+                
+                // Handle potential mismatch by fixing the mapping right before using it
+                for (const lesson of lessons) {
+                    if (lesson.standard_code) {
+                        // Make sure we have a mapping for each lesson.standard_code
+                        if (!standardsMap[lesson.standard_code]) {
+                            // Look for a standard with matching code
+                            const matchingStandard = standards.find(s => s.code === lesson.standard_code);
+                            if (matchingStandard) {
+                                standardsMap[lesson.standard_code] = matchingStandard;
+                            }
+                        }
+                    }
+                }
                 
                 // Populate grade filter
                 const gradeFilter = document.getElementById('grade-filter');
@@ -151,7 +164,7 @@
                         lessonItem.innerHTML = `
                             <h3>${lesson.title || 'Unnamed Lesson'}</h3>
                             <p class="standard-tag">${lesson.standard_code || 'No standard'}</p>
-                            <p>${lesson.description ? lesson.description.substring(0, 150) + '...' : 'No description available'}</p>
+                            <p class="lesson-description">${lesson.description || lesson.title || 'No description available'}</p>
                         `;
                         
                         lessonItem.addEventListener('click', () => showLessonDetail(lesson));
@@ -184,9 +197,14 @@
                         ${lesson.description ? `
                             <div class="detail-section">
                                 <h4>Description</h4>
-                                <p>${lesson.description}</p>
+                                <p class="lesson-description">${lesson.description}</p>
                             </div>
-                        ` : ''}
+                        ` : `
+                            <div class="detail-section">
+                                <h4>Description</h4>
+                                <p class="lesson-description">${lesson.title}</p>
+                            </div>
+                        `}
                         <div class="detail-section">
                             <h4>Sample Questions</h4>
                             <div id="sample-questions">
