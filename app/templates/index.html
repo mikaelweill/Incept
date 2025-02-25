@@ -3,70 +3,88 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Curriculum Visualization Dashboard</title>
+    <title>Curriculum Visualization - Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- D3.js is required for visualizations -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
 </head>
 <body>
     <header>
-        <h1>Curriculum Visualization Dashboard</h1>
+        <h1>Curriculum Visualization</h1>
         <nav>
             <ul>
-                <li><a href="/" class="active">Dashboard</a></li>
-                <li><a href="/standards">Standards</a></li>
-                <li><a href="/lessons">Lessons</a></li>
-                <li><a href="/visualization">Visualization</a></li>
+                <li class="active"><a href="{{ url_for('index') }}">Dashboard</a></li>
+                <li><a href="{{ url_for('standards_view') }}">Standards</a></li>
+                <li><a href="{{ url_for('lessons_view') }}">Lessons</a></li>
+                <li><a href="{{ url_for('visualization_view') }}">Visualization</a></li>
             </ul>
         </nav>
     </header>
 
     <main>
-        <section class="dashboard-summary">
-            <h2>8th Grade Science Curriculum Overview</h2>
+        <section class="dashboard-container">
+            <h2>Curriculum Dashboard</h2>
             
-            <div class="stats-container">
-                <div class="stat-card">
-                    <h3>Standards</h3>
-                    <div class="stat-value" id="standards-count">-</div>
-                </div>
-                <div class="stat-card">
-                    <h3>Lessons</h3>
-                    <div class="stat-value" id="lessons-count">-</div>
-                </div>
-                <div class="stat-card">
-                    <h3>CCC Content</h3>
-                    <div class="stat-value" id="ccc-count">-</div>
-                </div>
-            </div>
-        </section>
-
-        <section class="dashboard-charts">
-            <div class="chart-container">
-                <h3>Standards Distribution</h3>
-                <div id="standards-chart" class="chart"></div>
+            <!-- Loading indicator -->
+            <div id="loading-indicator" class="loading-spinner">
+                <div class="spinner"></div>
+                <p>Loading data...</p>
             </div>
             
-            <div class="chart-container">
-                <h3>Lessons by Standard</h3>
-                <div id="lessons-chart" class="chart"></div>
-            </div>
-        </section>
-
-        <section class="quick-actions">
-            <h2>Quick Actions</h2>
-            <div class="action-buttons">
-                <a href="/standards" class="action-button">Browse Standards</a>
-                <a href="/lessons" class="action-button">Browse Lessons</a>
-                <a href="/visualization" class="action-button">View Relationships</a>
+            <!-- Error message area -->
+            <div id="error-message" class="error-message" style="display: none;"></div>
+            
+            <!-- Dashboard content -->
+            <div id="dashboard-content" style="display: none;">
+                <!-- Key metrics section -->
+                <div class="metrics-container">
+                    <div class="metric-card">
+                        <h3>Standards</h3>
+                        <div class="metric-value" id="standards-count">0</div>
+                    </div>
+                    
+                    <div class="metric-card">
+                        <h3>Lessons</h3>
+                        <div class="metric-value" id="lessons-count">0</div>
+                    </div>
+                    
+                    <div class="metric-card">
+                        <h3>Questions</h3>
+                        <div class="metric-value" id="questions-count">0</div>
+                    </div>
+                </div>
+                
+                <!-- Charts section -->
+                <div class="charts-container">
+                    <div class="chart-card">
+                        <h3>Standards Distribution</h3>
+                        <div id="standards-chart" class="chart"></div>
+                    </div>
+                    
+                    <div class="chart-card">
+                        <h3>Lessons by Grade</h3>
+                        <div id="lessons-chart" class="chart"></div>
+                    </div>
+                </div>
+                
+                <!-- Mini visualization preview -->
+                <div class="visualization-preview">
+                    <h3>Curriculum Relationship Preview</h3>
+                    <div id="mini-visualization" class="mini-viz"></div>
+                    <p>
+                        <a href="{{ url_for('visualization_view') }}" class="button">Full Visualization</a>
+                    </p>
+                </div>
             </div>
         </section>
     </main>
-
+    
+    <footer>
+        <p>Curriculum Visualization Tool &copy; 2023</p>
+    </footer>
+    
+    <!-- Load dashboard-specific JavaScript -->
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            initDashboard();
-        });
-    </script>
 </body>
 </html> 

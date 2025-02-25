@@ -3,8 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Curriculum Relationship Visualization</title>
+    <title>Curriculum Visualization - Force Graph</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- D3.js is required for visualizations -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
         /* Additional styles specific to the visualization */
         .node {
@@ -64,163 +66,83 @@
 </head>
 <body>
     <header>
-        <h1>Curriculum Relationship Visualization</h1>
+        <h1>Curriculum Visualization</h1>
         <nav>
             <ul>
-                <li><a href="/">Dashboard</a></li>
-                <li><a href="/standards">Standards</a></li>
-                <li><a href="/lessons">Lessons</a></li>
-                <li><a href="/visualization" class="active">Visualization</a></li>
+                <li><a href="{{ url_for('index') }}">Dashboard</a></li>
+                <li><a href="{{ url_for('standards_view') }}">Standards</a></li>
+                <li><a href="{{ url_for('lessons_view') }}">Lessons</a></li>
+                <li class="active"><a href="{{ url_for('visualization_view') }}">Visualization</a></li>
             </ul>
         </nav>
     </header>
 
     <main>
-        <section class="visualization-section">
-            <h2>Interactive Curriculum Network</h2>
+        <section class="visualization-container">
+            <h2>Curriculum Relationship Visualization</h2>
             
-            <div class="legend">
-                <div class="legend-item">
-                    <span class="legend-color" style="background: #4e79a7;"></span>
-                    <span class="legend-label">Standard</span>
+            <!-- Loading indicator -->
+            <div id="loading-indicator" class="loading-spinner">
+                <div class="spinner"></div>
+                <p>Loading visualization data...</p>
+            </div>
+            
+            <!-- Error message area -->
+            <div id="error-message" class="error-message" style="display: none;"></div>
+            
+            <!-- Controls -->
+            <div class="visualization-controls">
+                <div class="control-group">
+                    <label for="filter-standard">Filter by Standard:</label>
+                    <select id="filter-standard">
+                        <option value="">All Standards</option>
+                    </select>
                 </div>
-                <div class="legend-item">
-                    <span class="legend-color" style="background: #f28e2c;"></span>
-                    <span class="legend-label">Lesson</span>
+                
+                <div class="control-group">
+                    <label for="filter-grade">Filter by Grade:</label>
+                    <select id="filter-grade">
+                        <option value="">All Grades</option>
+                    </select>
                 </div>
-                <div class="legend-item">
-                    <span class="legend-color" style="background: #e15759;"></span>
-                    <span class="legend-label">Question</span>
-                </div>
-                <div class="legend-item">
-                    <span class="legend-color" style="background: #76b7b2;"></span>
-                    <span class="legend-label">Article</span>
+                
+                <div class="control-group buttons">
+                    <button id="reset-filters" class="button">Reset Filters</button>
+                    <button id="reset-zoom" class="button">Reset Zoom</button>
                 </div>
             </div>
             
-            <div class="visualization-container">
-                <div class="controls">
-                    <button id="zoom-in">+</button>
-                    <button id="zoom-out">-</button>
-                    <button id="reset-view">Reset</button>
+            <!-- Main visualization area -->
+            <div id="visualization" class="visualization-graph"></div>
+            
+            <!-- Legend -->
+            <div class="visualization-legend">
+                <h3>Legend</h3>
+                <ul>
+                    <li><span class="legend-item standard"></span> Standard</li>
+                    <li><span class="legend-item lesson"></span> Lesson</li>
+                    <li><span class="legend-item question"></span> Question</li>
+                    <li><span class="legend-item article"></span> Article</li>
+                </ul>
+            </div>
+            
+            <!-- Detail panel for selected items -->
+            <div id="detail-panel" class="detail-panel" style="display: none;">
+                <div class="detail-header">
+                    <h3>Item Details</h3>
+                    <button class="close-button">&times;</button>
                 </div>
-                
-                <div id="graph-container"></div>
-                
-                <div id="detail-panel" class="detail-panel">
-                    <div class="close-btn">&times;</div>
-                    <div id="detail-content"></div>
-                </div>
+                <div id="detail-content" class="detail-content"></div>
             </div>
         </section>
     </main>
-
-    <script src="https://d3js.org/d3.v7.min.js"></script>
+    
+    <footer>
+        <p>Curriculum Visualization Tool &copy; 2023</p>
+    </footer>
+    
+    <!-- Load visualization-specific JavaScript -->
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
-    <script>
-        document.addEventListener('DOMContentLoaded', async function() {
-            try {
-                // Collect all the data needed for visualization
-                const standards = await fetchFromAPI('/api/standards');
-                const lessons = await fetchFromAPI('/api/lessons');
-                const cccContent = await fetchFromAPI('/api/ccc-content');
-                
-                // Format data for the graph visualization
-                const graphData = formatGraphData(standards, lessons, cccContent);
-                
-                // Create the force-directed graph
-                createForceGraph('graph-container', graphData);
-                
-                // Set up controls
-                document.getElementById('zoom-in').addEventListener('click', zoomIn);
-                document.getElementById('zoom-out').addEventListener('click', zoomOut);
-                document.getElementById('reset-view').addEventListener('click', resetView);
-                
-                // Set up detail panel close button
-                document.querySelector('.close-btn').addEventListener('click', function() {
-                    document.getElementById('detail-panel').style.display = 'none';
-                });
-            } catch (error) {
-                console.error('Error loading data for visualization:', error);
-                document.getElementById('graph-container').innerHTML = 
-                    '<div class="error">Error loading visualization data. Please try again later.</div>';
-            }
-        });
-        
-        // Format the data for the graph
-        function formatGraphData(standards, lessons, cccContent) {
-            const nodes = [];
-            const links = [];
-            
-            // Add standards as nodes
-            standards.forEach(standard => {
-                nodes.push({
-                    id: `standard-${standard.code}`,
-                    type: 'standard',
-                    label: standard.code,
-                    data: standard
-                });
-            });
-            
-            // Add lessons as nodes and create links to standards
-            lessons.forEach(lesson => {
-                nodes.push({
-                    id: `lesson-${lesson.id}`,
-                    type: 'lesson',
-                    label: lesson.title,
-                    data: lesson
-                });
-                
-                // Link to standard
-                links.push({
-                    source: `lesson-${lesson.id}`,
-                    target: `standard-${lesson.standard_code}`,
-                    value: 1
-                });
-            });
-            
-            // Add CCC content as nodes and create links to lessons
-            cccContent.forEach(item => {
-                const nodeType = item.type.toLowerCase();
-                const nodeId = `${nodeType}-${item.id}`;
-                
-                nodes.push({
-                    id: nodeId,
-                    type: nodeType,
-                    label: item.name || `${item.type} ${item.id}`,
-                    data: item
-                });
-                
-                // Link to lesson if available
-                if (item.lessonId) {
-                    links.push({
-                        source: nodeId,
-                        target: `lesson-${item.lessonId}`,
-                        value: 1
-                    });
-                }
-            });
-            
-            return { nodes, links };
-        }
-        
-        // Zoom control functions
-        let currentZoom = d3.zoomIdentity;
-        
-        function zoomIn() {
-            currentZoom = currentZoom.scale(1.2);
-            d3.select('svg').transition().duration(500).call(zoom.transform, currentZoom);
-        }
-        
-        function zoomOut() {
-            currentZoom = currentZoom.scale(0.8);
-            d3.select('svg').transition().duration(500).call(zoom.transform, currentZoom);
-        }
-        
-        function resetView() {
-            currentZoom = d3.zoomIdentity;
-            d3.select('svg').transition().duration(500).call(zoom.transform, currentZoom);
-        }
-    </script>
+    <script src="{{ url_for('static', filename='js/visualization.js') }}"></script>
 </body>
 </html> 

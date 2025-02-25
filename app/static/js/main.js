@@ -4,44 +4,55 @@
  * This file contains shared utility functions used across the visualization UI.
  */
 
-// API cache to avoid redundant fetches
-const apiCache = new Map();
+// Keep a cache of API responses to avoid unnecessary requests
+const apiCache = {};
 
 /**
- * Fetch data from an API endpoint with caching
- * @param {string} endpoint - The API endpoint path
- * @returns {Promise<Object>} The fetched data
+ * Fetch data from the API
+ * @param {string} endpoint - The API endpoint to fetch from
+ * @param {boolean} useCache - Whether to use cached data if available (default: true)
+ * @returns {Promise<Object>} - The JSON response from the API
  */
-async function fetchFromAPI(endpoint) {
-    // Check cache first
-    if (apiCache.has(endpoint)) {
-        return apiCache.get(endpoint);
-    }
+async function fetchFromAPI(endpoint, useCache = true) {
+    console.log(`Fetching from API: ${endpoint}`);
     
     try {
-        const response = await fetch(endpoint);
-        
-        if (!response.ok) {
-            throw new Error(`API error: ${response.status} ${response.statusText}`);
+        // Return cached data if available and caching is enabled
+        if (useCache && apiCache[endpoint]) {
+            console.log(`Using cached data for ${endpoint}`);
+            return apiCache[endpoint];
         }
         
+        // Make the fetch request
+        const response = await fetch(endpoint);
+        
+        // Check if the response is OK
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`API error (${response.status}): ${errorText || response.statusText}`);
+        }
+        
+        // Parse the JSON response
         const data = await response.json();
         
-        // Cache the response
-        apiCache.set(endpoint, data);
+        // Store in cache if caching is enabled
+        if (useCache) {
+            apiCache[endpoint] = data;
+        }
         
+        console.log(`Successfully fetched data from ${endpoint}`);
         return data;
     } catch (error) {
         console.error(`Error fetching from ${endpoint}:`, error);
-        throw error;
+        throw error; // Re-throw to allow caller to handle it
     }
 }
 
 /**
- * Clear the API cache to force fresh data retrieval
+ * Clear the API cache
  */
 function clearAPICache() {
-    apiCache.clear();
+    Object.keys(apiCache).forEach(key => delete apiCache[key]);
     console.log('API cache cleared');
 }
 
@@ -51,75 +62,56 @@ function clearAPICache() {
  * @param {Object} data - Graph data with nodes and links
  */
 function createForceGraph(elementId, data) {
+    console.log(`Creating force graph in ${elementId}`);
     const container = document.getElementById(elementId);
-    if (!container) return;
     
-    // Get container dimensions
-    const width = container.clientWidth;
-    const height = container.clientHeight || 500;
+    if (!container) {
+        console.error(`Container element with ID ${elementId} not found`);
+        return;
+    }
     
     // Clear any existing content
     container.innerHTML = '';
     
-    // Create SVG
+    // Get container dimensions
+    const width = container.clientWidth;
+    const height = container.clientHeight || 600;
+    
+    // Create SVG element
     const svg = d3.create('svg')
         .attr('width', width)
-        .attr('height', height)
-        .attr('viewBox', [0, 0, width, height])
-        .attr('style', 'max-width: 100%; height: auto;');
+        .attr('height', height);
     
-    // Add a group for the graph elements
-    const g = svg.append('g');
-    
-    // Create a zoom behavior
-    const zoom = d3.zoom()
-        .scaleExtent([0.1, 4])
-        .on('zoom', (event) => {
-            g.attr('transform', event.transform);
-        });
-    
-    svg.call(zoom);
-    
-    // Define forces
+    // Create simulation
     const simulation = d3.forceSimulation(data.nodes)
         .force('link', d3.forceLink(data.links).id(d => d.id).distance(100))
-        .force('charge', d3.forceManyBody().strength(-200))
-        .force('center', d3.forceCenter(width / 2, height / 2))
-        .force('x', d3.forceX(width / 2).strength(0.1))
-        .force('y', d3.forceY(height / 2).strength(0.1));
+        .force('charge', d3.forceManyBody().strength(-300))
+        .force('center', d3.forceCenter(width / 2, height / 2));
     
     // Create links
-    const link = g.append('g')
+    const link = svg.append('g')
         .attr('stroke', '#999')
         .attr('stroke-opacity', 0.6)
         .selectAll('line')
         .data(data.links)
         .join('line')
-        .attr('stroke-width', d => Math.sqrt(d.value));
+        .attr('stroke-width', d => Math.sqrt(d.value || 1));
     
     // Create nodes
-    const node = g.append('g')
-        .selectAll('.node')
+    const node = svg.append('g')
+        .selectAll('circle')
         .data(data.nodes)
-        .join('g')
-        .attr('class', 'node')
+        .join('circle')
+        .attr('r', 5)
+        .attr('fill', d => getNodeColor(d))
         .call(drag(simulation));
     
-    // Add circles to nodes
-    node.append('circle')
-        .attr('r', 8)
-        .attr('class', d => `node-${d.type}`)
-        .attr('fill', getNodeColor)
-        .on('click', (event, d) => showDetailPanel(d));
+    // Add click event to nodes
+    node.on('click', (event, d) => {
+        showDetailPanel(d);
+    });
     
-    // Add labels to nodes
-    node.append('text')
-        .attr('dy', -12)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', '10px')
-        .text(d => d.label || d.id);
-    
-    // Handle simulation ticks
+    // Update positions on tick
     simulation.on('tick', () => {
         link
             .attr('x1', d => d.source.x)
@@ -127,27 +119,15 @@ function createForceGraph(elementId, data) {
             .attr('x2', d => d.target.x)
             .attr('y2', d => d.target.y);
         
-        node.attr('transform', d => `translate(${d.x},${d.y})`);
+        node
+            .attr('cx', d => d.x)
+            .attr('cy', d => d.y);
     });
     
     // Append the SVG to the container
     container.appendChild(svg.node());
     
-    // Make zoom object available globally
-    window.zoom = zoom;
-    
-    // Function to get node color based on type
-    function getNodeColor(d) {
-        switch (d.type) {
-            case 'standard': return '#4e79a7';
-            case 'lesson': return '#f28e2c';
-            case 'question': return '#e15759';
-            case 'article': return '#76b7b2';
-            default: return '#aaa';
-        }
-    }
-    
-    // Drag function for nodes
+    // Function to enable node dragging
     function drag(simulation) {
         function dragstarted(event) {
             if (!event.active) simulation.alphaTarget(0.3).restart();
@@ -171,6 +151,22 @@ function createForceGraph(elementId, data) {
             .on('drag', dragged)
             .on('end', dragended);
     }
+    
+    // Function to determine node color based on type
+    function getNodeColor(node) {
+        switch (node.type) {
+            case 'standard':
+                return '#4e79a7';
+            case 'lesson':
+                return '#f28e2c';
+            case 'question':
+                return '#e15759';
+            case 'article':
+                return '#76b7b2';
+            default:
+                return '#aaa';
+        }
+    }
 }
 
 /**
@@ -178,102 +174,86 @@ function createForceGraph(elementId, data) {
  * @param {Object} data - The node data
  */
 function showDetailPanel(data) {
-    const detailPanel = document.getElementById('detail-panel');
-    const detailContent = document.getElementById('detail-content');
+    console.log(`Showing detail panel for ${data.type}: ${data.label}`);
     
-    if (!detailPanel || !detailContent) return;
+    // Create or get the detail panel
+    let detailPanel = document.getElementById('detail-panel');
     
-    // Display the panel
-    detailPanel.style.display = 'block';
-    
-    // Clear existing content
-    detailContent.innerHTML = '';
-    
-    // Build content based on node type
-    const type = data.type;
-    
-    // Header
-    const header = document.createElement('h3');
-    header.textContent = `${type.charAt(0).toUpperCase() + type.slice(1)}: ${data.label || data.id}`;
-    detailContent.appendChild(header);
-    
-    // Details section
-    const details = document.createElement('div');
-    details.className = 'detail-item';
-    
-    switch (type) {
-        case 'standard':
-            if (data.data && data.data.description) {
-                const desc = document.createElement('p');
-                desc.textContent = data.data.description;
-                details.appendChild(desc);
-            }
-            
-            // Add button to fetch related lessons
-            const lessonsBtn = document.createElement('button');
-            lessonsBtn.textContent = 'Show Related Lessons';
-            lessonsBtn.className = 'detail-button';
-            lessonsBtn.addEventListener('click', () => {
-                fetchRelatedLessons(data.id.replace('standard-', ''));
-            });
-            details.appendChild(lessonsBtn);
-            break;
-            
-        case 'lesson':
-            if (data.data) {
-                if (data.data.description) {
-                    const desc = document.createElement('p');
-                    desc.textContent = data.data.description;
-                    details.appendChild(desc);
-                }
-                
-                if (data.data.standard_code) {
-                    const standard = document.createElement('div');
-                    standard.innerHTML = `<strong>Standard:</strong> ${data.data.standard_code}`;
-                    details.appendChild(standard);
-                }
-            }
-            
-            // Add button to fetch sample questions
-            const questionsBtn = document.createElement('button');
-            questionsBtn.textContent = 'Show Sample Questions';
-            questionsBtn.className = 'detail-button';
-            questionsBtn.addEventListener('click', () => {
-                const lessonId = data.id.replace('lesson-', '');
-                fetchSampleQuestions(lessonId);
-            });
-            details.appendChild(questionsBtn);
-            break;
-            
-        case 'question':
-        case 'article':
-            if (data.data) {
-                const contentId = document.createElement('div');
-                contentId.innerHTML = `<strong>ID:</strong> ${data.data.id}`;
-                details.appendChild(contentId);
-                
-                if (data.data.type) {
-                    const contentType = document.createElement('div');
-                    contentType.innerHTML = `<strong>Type:</strong> ${data.data.type}`;
-                    details.appendChild(contentType);
-                }
-                
-                // Add button to fetch full content from CCC API
-                const cccBtn = document.createElement('button');
-                cccBtn.textContent = 'Fetch Full Content';
-                cccBtn.className = 'detail-button';
-                cccBtn.addEventListener('click', () => {
-                    fetchCCCContent(data.data.id);
-                });
-                details.appendChild(cccBtn);
-            }
-            break;
-            
-        default:
-            details.textContent = 'No additional details available';
+    if (!detailPanel) {
+        // Create the panel if it doesn't exist
+        detailPanel = document.createElement('div');
+        detailPanel.id = 'detail-panel';
+        detailPanel.className = 'detail-panel';
+        
+        // Add close button
+        const closeButton = document.createElement('button');
+        closeButton.textContent = '×';
+        closeButton.className = 'close-button';
+        closeButton.addEventListener('click', () => {
+            detailPanel.style.display = 'none';
+        });
+        
+        detailPanel.appendChild(closeButton);
+        document.body.appendChild(detailPanel);
     }
     
-    detailContent.appendChild(details);
+    // Clear existing content
+    detailPanel.innerHTML = '';
+    
+    // Add close button
+    const closeButton = document.createElement('button');
+    closeButton.textContent = '×';
+    closeButton.className = 'close-button';
+    closeButton.addEventListener('click', () => {
+        detailPanel.style.display = 'none';
+    });
+    detailPanel.appendChild(closeButton);
+    
+    // Add title
+    const title = document.createElement('h3');
+    title.textContent = data.label;
+    detailPanel.appendChild(title);
+    
+    // Add type
+    const type = document.createElement('p');
+    type.innerHTML = `<strong>Type:</strong> ${data.type}`;
+    detailPanel.appendChild(type);
+    
+    // Add additional information based on type
+    if (data.type === 'standard') {
+        const description = document.createElement('p');
+        description.innerHTML = `<strong>Description:</strong> ${data.data.description || 'No description available'}`;
+        detailPanel.appendChild(description);
+        
+        // Add button to show related lessons
+        const button = document.createElement('button');
+        button.textContent = 'Show Related Lessons';
+        button.className = 'button';
+        button.addEventListener('click', () => fetchRelatedLessons(data.id));
+        detailPanel.appendChild(button);
+    } else if (data.type === 'lesson') {
+        if (data.data.description) {
+            const description = document.createElement('p');
+            description.innerHTML = `<strong>Description:</strong> ${data.data.description}`;
+            detailPanel.appendChild(description);
+        }
+        
+        if (data.data.standard_code) {
+            const standard = document.createElement('p');
+            standard.innerHTML = `<strong>Standard:</strong> ${data.data.standard_code}`;
+            detailPanel.appendChild(standard);
+        }
+        
+        // Add button to show sample questions
+        const button = document.createElement('button');
+        button.textContent = 'Show Sample Questions';
+        button.className = 'button';
+        button.addEventListener('click', () => fetchSampleQuestions(data.id));
+        detailPanel.appendChild(button);
+    }
+    
+    // Show the panel
+    detailPanel.style.display = 'block';
 }
 
 /**
@@ -281,42 +261,61 @@ function showDetailPanel(data) {
  * @param {string} standardId - The standard ID
  */
 async function fetchRelatedLessons(standardId) {
-    const detailContent = document.getElementById('detail-content');
-    if (!detailContent) return;
-    
     try {
-        // Show loading indicator
-        const loadingSection = document.createElement('div');
-        loadingSection.className = 'related-content';
-        loadingSection.innerHTML = '<p>Loading related lessons...</p>';
-        detailContent.appendChild(loadingSection);
+        // Extract standard code from ID (e.g., "standard-MS-PS1-1" -> "MS-PS1-1")
+        const standardCode = standardId.replace('standard-', '');
+        const endpoint = `/api/standards/${standardCode}/lessons`;
         
-        // Fetch related lessons
-        const lessons = await fetchFromAPI(`/api/standards/${standardId}/lessons`);
+        // Show loading message
+        const detailPanel = document.getElementById('detail-panel');
+        const loadingMsg = document.createElement('p');
+        loadingMsg.className = 'loading-message';
+        loadingMsg.textContent = 'Loading related lessons...';
+        detailPanel.appendChild(loadingMsg);
         
-        // Update the section
-        loadingSection.innerHTML = '<h4>Related Lessons</h4>';
+        // Fetch the data
+        const lessons = await fetchFromAPI(endpoint);
         
+        // Remove loading message
+        detailPanel.removeChild(loadingMsg);
+        
+        // Create container for lessons
+        const lessonsContainer = document.createElement('div');
+        lessonsContainer.className = 'related-items';
+        
+        // Add title
+        const title = document.createElement('h4');
+        title.textContent = 'Related Lessons';
+        lessonsContainer.appendChild(title);
+        
+        // Add lessons list
         if (lessons && lessons.length > 0) {
             const list = document.createElement('ul');
-            list.className = 'related-list';
             
             lessons.forEach(lesson => {
                 const item = document.createElement('li');
-                item.innerHTML = `
-                    <strong>${lesson.title}</strong><br>
-                    ${lesson.description || ''}
-                `;
+                item.textContent = lesson.title || 'Unnamed Lesson';
                 list.appendChild(item);
             });
             
-            loadingSection.appendChild(list);
+            lessonsContainer.appendChild(list);
         } else {
-            loadingSection.innerHTML += '<p>No related lessons found</p>';
+            const noLessons = document.createElement('p');
+            noLessons.textContent = 'No related lessons found.';
+            lessonsContainer.appendChild(noLessons);
         }
+        
+        // Add to detail panel
+        detailPanel.appendChild(lessonsContainer);
     } catch (error) {
         console.error('Error fetching related lessons:', error);
-        detailContent.innerHTML += '<p class="error">Error loading related lessons</p>';
+        
+        // Show error message
+        const detailPanel = document.getElementById('detail-panel');
+        const errorMsg = document.createElement('p');
+        errorMsg.className = 'error-message';
+        errorMsg.textContent = 'Error loading related lessons.';
+        detailPanel.appendChild(errorMsg);
     }
 }
 
@@ -325,97 +324,61 @@ async function fetchRelatedLessons(standardId) {
  * @param {string} lessonId - The lesson ID
  */
 async function fetchSampleQuestions(lessonId) {
-    const detailContent = document.getElementById('detail-content');
-    if (!detailContent) return;
-    
     try {
-        // Show loading indicator
-        const loadingSection = document.createElement('div');
-        loadingSection.className = 'related-content';
-        loadingSection.innerHTML = '<p>Loading sample questions...</p>';
-        detailContent.appendChild(loadingSection);
+        // Extract lesson ID from the node ID (e.g., "lesson-123" -> "123")
+        const id = lessonId.replace('lesson-', '');
+        const endpoint = `/api/ccc-content?lesson_id=${id}`;
         
-        // Fetch related content
-        const content = await fetchFromAPI(`/api/ccc-content?lesson=${lessonId}`);
+        // Show loading message
+        const detailPanel = document.getElementById('detail-panel');
+        const loadingMsg = document.createElement('p');
+        loadingMsg.className = 'loading-message';
+        loadingMsg.textContent = 'Loading sample questions...';
+        detailPanel.appendChild(loadingMsg);
         
-        // Update the section
-        loadingSection.innerHTML = '<h4>Sample Content</h4>';
+        // Fetch the data
+        const questions = await fetchFromAPI(endpoint);
         
-        if (content && content.length > 0) {
+        // Remove loading message
+        detailPanel.removeChild(loadingMsg);
+        
+        // Create container for questions
+        const questionsContainer = document.createElement('div');
+        questionsContainer.className = 'related-items';
+        
+        // Add title
+        const title = document.createElement('h4');
+        title.textContent = 'Sample Questions';
+        questionsContainer.appendChild(title);
+        
+        // Add questions list
+        if (questions && questions.length > 0) {
             const list = document.createElement('ul');
-            list.className = 'related-list';
             
-            content.forEach(item => {
-                const li = document.createElement('li');
-                li.innerHTML = `
-                    <strong>${item.type || 'Item'} ${item.id}</strong><br>
-                    ${item.name || ''}
-                `;
-                list.appendChild(li);
+            questions.forEach((question, index) => {
+                const item = document.createElement('li');
+                item.textContent = question.title || `Question ${index + 1}`;
+                list.appendChild(item);
             });
             
-            loadingSection.appendChild(list);
+            questionsContainer.appendChild(list);
         } else {
-            loadingSection.innerHTML += '<p>No sample content found</p>';
+            const noQuestions = document.createElement('p');
+            noQuestions.textContent = 'No sample questions found.';
+            questionsContainer.appendChild(noQuestions);
         }
+        
+        // Add to detail panel
+        detailPanel.appendChild(questionsContainer);
     } catch (error) {
         console.error('Error fetching sample questions:', error);
-        detailContent.innerHTML += '<p class="error">Error loading sample content</p>';
-    }
-}
-
-/**
- * Fetch full content from CCC API
- * @param {string} itemId - The CCC item ID
- */
-async function fetchCCCContent(itemId) {
-    const detailContent = document.getElementById('detail-content');
-    if (!detailContent) return;
-    
-    try {
-        // Show loading indicator
-        const loadingSection = document.createElement('div');
-        loadingSection.className = 'related-content';
-        loadingSection.innerHTML = '<p>Loading content from CCC API...</p>';
-        detailContent.appendChild(loadingSection);
         
-        // Fetch item details
-        const item = await fetchFromAPI(`/api/ccc-item/${itemId}`);
-        
-        // Update the section
-        loadingSection.innerHTML = '<h4>CCC Content</h4>';
-        
-        if (item) {
-            const content = document.createElement('div');
-            content.className = 'ccc-content';
-            
-            // Display item details
-            content.innerHTML = `
-                <div class="ccc-item-header">
-                    <strong>${item.type || 'Item'} ${item.id}</strong>
-                </div>
-                <div class="ccc-item-body">
-                    ${item.name || ''}
-                </div>
-            `;
-            
-            // Add API data if available
-            if (item.api_data) {
-                content.innerHTML += `
-                    <div class="ccc-api-data">
-                        <h5>API Data</h5>
-                        <pre>${JSON.stringify(item.api_data, null, 2)}</pre>
-                    </div>
-                `;
-            }
-            
-            loadingSection.appendChild(content);
-        } else {
-            loadingSection.innerHTML += '<p>No content found</p>';
-        }
-    } catch (error) {
-        console.error('Error fetching CCC content:', error);
-        detailContent.innerHTML += '<p class="error">Error loading CCC content</p>';
+        // Show error message
+        const detailPanel = document.getElementById('detail-panel');
+        const errorMsg = document.createElement('p');
+        errorMsg.className = 'error-message';
+        errorMsg.textContent = 'Error loading sample questions.';
+        detailPanel.appendChild(errorMsg);
     }
 }
 
@@ -429,7 +392,9 @@ async function fetchCCCContent(itemId) {
  * @param {string} yLabel - The y-axis label
  */
 function createBarChart(elementId, data, xKey, yKey, xLabel, yLabel) {
+    console.log(`Creating bar chart in ${elementId}`);
     const container = document.getElementById(elementId);
+    
     if (!container || !data || data.length === 0) return;
     
     // Get container dimensions
