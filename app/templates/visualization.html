@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Curriculum Relationship Visualization</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        /* Additional styles specific to the visualization */
+        .node {
+            cursor: pointer;
+        }
+        
+        .link {
+            stroke: #999;
+            stroke-opacity: 0.6;
+        }
+
+        .visualization-container {
+            height: 70vh;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .detail-panel {
+            position: absolute;
+            right: 20px;
+            top: 20px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            max-width: 300px;
+            max-height: 80%;
+            overflow-y: auto;
+            display: none;
+        }
+        
+        .controls {
+            position: absolute;
+            left: 20px;
+            top: 20px;
+            z-index: 100;
+        }
+        
+        .node-standard {
+            fill: #4e79a7;
+        }
+        
+        .node-lesson {
+            fill: #f28e2c;
+        }
+        
+        .node-question {
+            fill: #e15759;
+        }
+        
+        .node-article {
+            fill: #76b7b2;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Curriculum Relationship Visualization</h1>
+        <nav>
+            <ul>
+                <li><a href="/">Dashboard</a></li>
+                <li><a href="/standards">Standards</a></li>
+                <li><a href="/lessons">Lessons</a></li>
+                <li><a href="/visualization" class="active">Visualization</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main>
+        <section class="visualization-section">
+            <h2>Interactive Curriculum Network</h2>
+            
+            <div class="legend">
+                <div class="legend-item">
+                    <span class="legend-color" style="background: #4e79a7;"></span>
+                    <span class="legend-label">Standard</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-color" style="background: #f28e2c;"></span>
+                    <span class="legend-label">Lesson</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-color" style="background: #e15759;"></span>
+                    <span class="legend-label">Question</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-color" style="background: #76b7b2;"></span>
+                    <span class="legend-label">Article</span>
+                </div>
+            </div>
+            
+            <div class="visualization-container">
+                <div class="controls">
+                    <button id="zoom-in">+</button>
+                    <button id="zoom-out">-</button>
+                    <button id="reset-view">Reset</button>
+                </div>
+                
+                <div id="graph-container"></div>
+                
+                <div id="detail-panel" class="detail-panel">
+                    <div class="close-btn">&times;</div>
+                    <div id="detail-content"></div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', async function() {
+            try {
+                // Collect all the data needed for visualization
+                const standards = await fetchFromAPI('/api/standards');
+                const lessons = await fetchFromAPI('/api/lessons');
+                const cccContent = await fetchFromAPI('/api/ccc-content');
+                
+                // Format data for the graph visualization
+                const graphData = formatGraphData(standards, lessons, cccContent);
+                
+                // Create the force-directed graph
+                createForceGraph('graph-container', graphData);
+                
+                // Set up controls
+                document.getElementById('zoom-in').addEventListener('click', zoomIn);
+                document.getElementById('zoom-out').addEventListener('click', zoomOut);
+                document.getElementById('reset-view').addEventListener('click', resetView);
+                
+                // Set up detail panel close button
+                document.querySelector('.close-btn').addEventListener('click', function() {
+                    document.getElementById('detail-panel').style.display = 'none';
+                });
+            } catch (error) {
+                console.error('Error loading data for visualization:', error);
+                document.getElementById('graph-container').innerHTML = 
+                    '<div class="error">Error loading visualization data. Please try again later.</div>';
+            }
+        });
+        
+        // Format the data for the graph
+        function formatGraphData(standards, lessons, cccContent) {
+            const nodes = [];
+            const links = [];
+            
+            // Add standards as nodes
+            standards.forEach(standard => {
+                nodes.push({
+                    id: `standard-${standard.code}`,
+                    type: 'standard',
+                    label: standard.code,
+                    data: standard
+                });
+            });
+            
+            // Add lessons as nodes and create links to standards
+            lessons.forEach(lesson => {
+                nodes.push({
+                    id: `lesson-${lesson.id}`,
+                    type: 'lesson',
+                    label: lesson.title,
+                    data: lesson
+                });
+                
+                // Link to standard
+                links.push({
+                    source: `lesson-${lesson.id}`,
+                    target: `standard-${lesson.standard_code}`,
+                    value: 1
+                });
+            });
+            
+            // Add CCC content as nodes and create links to lessons
+            cccContent.forEach(item => {
+                const nodeType = item.type.toLowerCase();
+                const nodeId = `${nodeType}-${item.id}`;
+                
+                nodes.push({
+                    id: nodeId,
+                    type: nodeType,
+                    label: item.name || `${item.type} ${item.id}`,
+                    data: item
+                });
+                
+                // Link to lesson if available
+                if (item.lessonId) {
+                    links.push({
+                        source: nodeId,
+                        target: `lesson-${item.lessonId}`,
+                        value: 1
+                    });
+                }
+            });
+            
+            return { nodes, links };
+        }
+        
+        // Zoom control functions
+        let currentZoom = d3.zoomIdentity;
+        
+        function zoomIn() {
+            currentZoom = currentZoom.scale(1.2);
+            d3.select('svg').transition().duration(500).call(zoom.transform, currentZoom);
+        }
+        
+        function zoomOut() {
+            currentZoom = currentZoom.scale(0.8);
+            d3.select('svg').transition().duration(500).call(zoom.transform, currentZoom);
+        }
+        
+        function resetView() {
+            currentZoom = d3.zoomIdentity;
+            d3.select('svg').transition().duration(500).call(zoom.transform, currentZoom);
+        }
+    </script>
+</body>
+</html> 

@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Curriculum Standards</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <header>
+        <h1>Curriculum Standards Explorer</h1>
+        <nav>
+            <ul>
+                <li><a href="/">Dashboard</a></li>
+                <li><a href="/standards" class="active">Standards</a></li>
+                <li><a href="/lessons">Lessons</a></li>
+                <li><a href="/visualization">Visualization</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main>
+        <section class="standards-container">
+            <h2>8th Grade Science Standards</h2>
+            <div class="standards-list" id="standards-list">
+                <!-- Standards will be populated via JavaScript -->
+                <div class="loading">Loading standards data...</div>
+            </div>
+        </section>
+
+        <section class="standard-details" id="standard-details">
+            <h2>Standard Details</h2>
+            <div id="selected-standard">
+                <p>Select a standard to view details</p>
+            </div>
+
+            <div id="related-lessons">
+                <h3>Related Lessons</h3>
+                <ul id="lessons-list">
+                    <!-- Lessons will be populated via JavaScript -->
+                </ul>
+            </div>
+
+            <div id="ccc-content">
+                <h3>CCC Content</h3>
+                <div id="ccc-items">
+                    <!-- CCC content will be populated via JavaScript -->
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+        // Load standards data when page loads
+        document.addEventListener('DOMContentLoaded', async function() {
+            try {
+                const standardsData = await fetchFromAPI('/api/standards');
+                displayStandards(standardsData);
+            } catch (error) {
+                console.error('Error loading standards:', error);
+                document.querySelector('#standards-list').innerHTML = 
+                    '<div class="error">Error loading standards data. Please try again later.</div>';
+            }
+        });
+
+        function displayStandards(standards) {
+            const standardsList = document.getElementById('standards-list');
+            
+            if (!standards || standards.length === 0) {
+                standardsList.innerHTML = '<div class="no-data">No standards found</div>';
+                return;
+            }
+            
+            standardsList.innerHTML = '';
+            
+            // Create a list item for each standard
+            const list = document.createElement('ul');
+            standards.forEach(standard => {
+                const item = document.createElement('li');
+                item.className = 'standard-item';
+                item.innerHTML = `
+                    <div class="standard-code">${standard.code}</div>
+                    <div class="standard-description">${standard.description}</div>
+                `;
+                
+                item.addEventListener('click', () => showStandardDetails(standard));
+                list.appendChild(item);
+            });
+            
+            standardsList.appendChild(list);
+        }
+
+        async function showStandardDetails(standard) {
+            // Highlight selected standard
+            const items = document.querySelectorAll('.standard-item');
+            items.forEach(item => item.classList.remove('selected'));
+            event.currentTarget.classList.add('selected');
+            
+            // Display standard details
+            document.getElementById('selected-standard').innerHTML = `
+                <h3>${standard.code}</h3>
+                <p>${standard.description}</p>
+            `;
+            
+            // Fetch and display related lessons
+            try {
+                const lessons = await fetchFromAPI(`/api/standards/${standard.code}/lessons`);
+                displayRelatedLessons(lessons);
+                
+                // Fetch CCC content if available
+                const cccContent = await fetchFromAPI(`/api/ccc-content?standard=${standard.code}`);
+                displayCCCContent(cccContent);
+            } catch (error) {
+                console.error('Error loading related content:', error);
+            }
+        }
+
+        function displayRelatedLessons(lessons) {
+            const lessonsList = document.getElementById('lessons-list');
+            
+            if (!lessons || lessons.length === 0) {
+                lessonsList.innerHTML = '<li class="no-data">No lessons found for this standard</li>';
+                return;
+            }
+            
+            lessonsList.innerHTML = '';
+            lessons.forEach(lesson => {
+                const item = document.createElement('li');
+                item.className = 'lesson-item';
+                item.innerHTML = `
+                    <div class="lesson-title">${lesson.title}</div>
+                    <div class="lesson-description">${lesson.description || ''}</div>
+                `;
+                lessonsList.appendChild(item);
+            });
+        }
+
+        function displayCCCContent(content) {
+            const cccItems = document.getElementById('ccc-items');
+            
+            if (!content || content.length === 0) {
+                cccItems.innerHTML = '<div class="no-data">No CCC content found for this standard</div>';
+                return;
+            }
+            
+            cccItems.innerHTML = '';
+            content.forEach(item => {
+                const contentItem = document.createElement('div');
+                contentItem.className = 'ccc-item';
+                contentItem.innerHTML = `
+                    <h4>${item.type}: ${item.name || 'Untitled'}</h4>
+                    <div class="ccc-id">ID: ${item.id}</div>
+                    <div class="ccc-preview">
+                        ${item.preview || 'No preview available'}
+                    </div>
+                `;
+                cccItems.appendChild(contentItem);
+            });
+        }
+    </script>
+</body>
+</html> 

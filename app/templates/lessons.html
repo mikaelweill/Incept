@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Curriculum Lessons</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <header>
+        <h1>Curriculum Lessons Explorer</h1>
+        <nav>
+            <ul>
+                <li><a href="/">Dashboard</a></li>
+                <li><a href="/standards">Standards</a></li>
+                <li><a href="/lessons" class="active">Lessons</a></li>
+                <li><a href="/visualization">Visualization</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main>
+        <section class="lessons-container">
+            <h2>8th Grade Science Lessons</h2>
+            
+            <div class="filter-container">
+                <label for="standard-filter">Filter by Standard:</label>
+                <select id="standard-filter">
+                    <option value="">All Standards</option>
+                    <!-- Standards will be populated via JavaScript -->
+                </select>
+            </div>
+            
+            <div class="lessons-list" id="lessons-list">
+                <!-- Lessons will be populated via JavaScript -->
+                <div class="loading">Loading lessons data...</div>
+            </div>
+        </section>
+
+        <section class="lesson-details" id="lesson-details">
+            <h2>Lesson Details</h2>
+            <div id="selected-lesson">
+                <p>Select a lesson to view details</p>
+            </div>
+
+            <div id="lesson-standard">
+                <h3>Associated Standard</h3>
+                <div id="standard-info">
+                    <!-- Standard info will be populated via JavaScript -->
+                </div>
+            </div>
+
+            <div id="lesson-ccc-content">
+                <h3>CCC Content</h3>
+                <div id="lesson-ccc-items">
+                    <!-- CCC content will be populated via JavaScript -->
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+        // Load lessons data when page loads
+        document.addEventListener('DOMContentLoaded', async function() {
+            try {
+                // Load all standards for the filter
+                const standards = await fetchFromAPI('/api/standards');
+                populateStandardsFilter(standards);
+                
+                // Load all lessons
+                const lessonsData = await fetchFromAPI('/api/lessons');
+                displayLessons(lessonsData);
+                
+                // Set up filter event listener
+                document.getElementById('standard-filter').addEventListener('change', filterLessons);
+            } catch (error) {
+                console.error('Error loading data:', error);
+                document.querySelector('#lessons-list').innerHTML = 
+                    '<div class="error">Error loading lessons data. Please try again later.</div>';
+            }
+        });
+
+        function populateStandardsFilter(standards) {
+            const filter = document.getElementById('standard-filter');
+            
+            standards.forEach(standard => {
+                const option = document.createElement('option');
+                option.value = standard.code;
+                option.textContent = standard.code;
+                filter.appendChild(option);
+            });
+        }
+
+        let allLessons = []; // Store all lessons for filtering
+
+        function displayLessons(lessons) {
+            allLessons = lessons; // Store for filtering
+            renderLessonsList(lessons);
+        }
+        
+        function renderLessonsList(lessons) {
+            const lessonsList = document.getElementById('lessons-list');
+            
+            if (!lessons || lessons.length === 0) {
+                lessonsList.innerHTML = '<div class="no-data">No lessons found</div>';
+                return;
+            }
+            
+            lessonsList.innerHTML = '';
+            
+            // Create a list of lessons
+            const list = document.createElement('ul');
+            lessons.forEach(lesson => {
+                const item = document.createElement('li');
+                item.className = 'lesson-item';
+                item.innerHTML = `
+                    <div class="lesson-title">${lesson.title}</div>
+                    <div class="lesson-standard">Standard: ${lesson.standard_code}</div>
+                `;
+                
+                item.addEventListener('click', () => showLessonDetails(lesson));
+                list.appendChild(item);
+            });
+            
+            lessonsList.appendChild(list);
+        }
+
+        function filterLessons() {
+            const standardCode = document.getElementById('standard-filter').value;
+            
+            if (!standardCode) {
+                // Show all lessons
+                renderLessonsList(allLessons);
+                return;
+            }
+            
+            // Filter lessons by selected standard
+            const filteredLessons = allLessons.filter(lesson => 
+                lesson.standard_code === standardCode
+            );
+            
+            renderLessonsList(filteredLessons);
+        }
+
+        async function showLessonDetails(lesson) {
+            // Highlight selected lesson
+            const items = document.querySelectorAll('.lesson-item');
+            items.forEach(item => item.classList.remove('selected'));
+            event.currentTarget.classList.add('selected');
+            
+            // Display lesson details
+            document.getElementById('selected-lesson').innerHTML = `
+                <h3>${lesson.title}</h3>
+                <p>${lesson.description || 'No description available'}</p>
+            `;
+            
+            // Fetch and display standard info
+            try {
+                const standard = await fetchFromAPI(`/api/standards/${lesson.standard_code}`);
+                document.getElementById('standard-info').innerHTML = `
+                    <div class="standard-code">${standard.code}</div>
+                    <div class="standard-description">${standard.description}</div>
+                `;
+                
+                // Fetch CCC content for this lesson if available
+                const cccContent = await fetchFromAPI(`/api/ccc-content?lesson=${lesson.id}`);
+                displayLessonCCCContent(cccContent);
+            } catch (error) {
+                console.error('Error loading related content:', error);
+            }
+        }
+
+        function displayLessonCCCContent(content) {
+            const cccItems = document.getElementById('lesson-ccc-items');
+            
+            if (!content || content.length === 0) {
+                cccItems.innerHTML = '<div class="no-data">No CCC content found for this lesson</div>';
+                return;
+            }
+            
+            cccItems.innerHTML = '';
+            content.forEach(item => {
+                const contentItem = document.createElement('div');
+                contentItem.className = 'ccc-item';
+                contentItem.innerHTML = `
+                    <h4>${item.type}: ${item.name || 'Untitled'}</h4>
+                    <div class="ccc-id">ID: ${item.id}</div>
+                    <div class="ccc-preview">
+                        ${item.preview || 'No preview available'}
+                    </div>
+                `;
+                cccItems.appendChild(contentItem);
+            });
+        }
+    </script>
+</body>
+</html> 
