@@ -1,6 +1,11 @@
-# Incept - Educational Content Generator
+# Incept
 
-API service for generating high-quality educational content for 8th grade science, including articles and question banks.
+Curriculum mapping and visualization project for educational content.
+
+This repository contains tools for:
+- Mapping standards to lessons
+- Visualizing curriculum relationships
+- Organizing educational content
 
 ## Requirements
 

@@ -26,6 +26,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+*.csv
 
 # Testing
 .pytest_cache/
@@ -50,4 +51,10 @@ coverage.xml
 logs/
 *.log
 temp/
-.cache/ 
+.cache/
+
+# Large data files
+*.json
+*.csv
+ccc_structure.json
+curriculum_structure.json 

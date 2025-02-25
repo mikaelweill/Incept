@@ -2,6 +2,7 @@ import os
 from typing import List, Optional, Dict, Any
 import httpx
 from dotenv import load_dotenv
+import json
 
 from src.models.question import Question, InteractionType, Choice, Solution
 
@@ -97,15 +98,49 @@ class CCCClient:
         # Then get all content for this standard
         content_items = await self.get_content_for_standard(standard["id"])
         
+        # Print some debug info
+        print(f"\nProcessing {len(content_items)} content items for standard {standard_code}")
+        print(f"Standard details: {standard['fullStatement']}")
+        
         # Filter for questions and convert to our format
         questions = []
-        for item in content_items:
+        for i, item in enumerate(content_items):
             if item["type"] != "Question":
                 continue
                 
             try:
                 content = item["content"]
                 
+                # Print raw content for debugging
+                print(f"\nRaw question content #{i}:")
+                print(json.dumps(content, indent=2))
+                
+                # Map CCC API fields to our expected fields
+                if "question" in content and "question_text" not in content:
+                    content["question_text"] = content["question"]
+                
+                if "answers" in content and "choices" not in content:
+                    # Convert answers to choices format
+                    content["choices"] = [
+                        {
+                            "text": answer["label"],
+                            "is_correct": answer["isCorrect"],
+                            "explanation": answer.get("explanation", "")
+                        }
+                        for answer in content["answers"]
+                    ]
+                    # Set correct_answer if not present
+                    if "correct_answer" not in content:
+                        for idx, answer in enumerate(content["answers"]):
+                            if answer["isCorrect"]:
+                                content["correct_answer"] = answer["label"]
+                                break
+                
+                # Check if required fields are present
+                if "question_text" not in content:
+                    print(f"Missing required field 'question_text' in question #{i}")
+                    continue
+                    
                 # Convert CCC question format to our Question model
                 question = Question(
                     prompt=content["question_text"],
@@ -118,7 +153,7 @@ class CCCClient:
                         )
                         for choice in content.get("choices", [])
                     ] if content.get("choices") else None,
-                    correct_answer=content["correct_answer"],
+                    correct_answer=content.get("correct_answer", ""),
                     solution=Solution(
                         steps=content.get("solution_steps", []),
                         explanation=content.get("solution_explanation", "")
@@ -130,8 +165,9 @@ class CCCClient:
                     difficulty=content.get("difficulty", 1)
                 )
                 questions.append(question)
+                print(f"Successfully converted question #{i}")
             except KeyError as e:
-                print(f"Skipping malformed question: {e}")
+                print(f"Skipping malformed question #{i}: {e}")
                 continue
                 
         return questions
