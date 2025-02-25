@@ -289,10 +289,22 @@ def get_ccc_content():
         ccc_data = load_ccc_structure()
         filtered_items = []
         
+        # Log the size of the CCC data
+        logger.info(f"Loaded CCC data with {len(ccc_data.get('items', []))} items")
+        
         if ccc_data and 'items' in ccc_data:
+            # Log a sample item to see its structure
+            if ccc_data.get('items') and len(ccc_data.get('items')) > 0:
+                sample_item = ccc_data.get('items')[0]
+                logger.info(f"Sample CCC item keys: {list(sample_item.keys())}")
+            
             # Filter by standard code or lesson ID if provided
             for item in ccc_data.get('items', []):
-                if standard_code and item.get('standard') == standard_code:
+                # Check various possible field names for standard code
+                item_standard = item.get('standard') or item.get('standard_code') or item.get('CFItemId') or item.get('humanCodingScheme')
+                
+                if standard_code and (item_standard == standard_code):
+                    logger.info(f"Found matching item for standard {standard_code}: {item.get('id')} - {item.get('title')}")
                     filtered_items.append(item)
                 elif lesson_id and str(item.get('lesson')) == str(lesson_id):
                     filtered_items.append(item)
@@ -300,6 +312,8 @@ def get_ccc_content():
             if not standard_code and not lesson_id:
                 # If no filters provided, return all items (limited to avoid large responses)
                 filtered_items = ccc_data.get('items', [])[:100]
+        
+        logger.info(f"Found {len(filtered_items)} items in local CCC data")
         
         # If we don't have enough local data, try the CCC API
         if not filtered_items and standard_code:
@@ -310,9 +324,16 @@ def get_ccc_content():
                 logger.info(f"Calling CCC API: {api_url}")
                 
                 response = requests.get(api_url, timeout=10)
+                logger.info(f"CCC API response status: {response.status_code}")
+                
                 if response.status_code == 200:
                     standards_data = response.json()
                     logger.info(f"Found {len(standards_data)} standards from CCC API")
+                    
+                    # If we got standards data, log a sample
+                    if standards_data and len(standards_data) > 0:
+                        sample_standard = standards_data[0]
+                        logger.info(f"Sample standard from API: {sample_standard.get('id')} - {sample_standard.get('humanCodingScheme')}")
                     
                     # For each standard found, get associated content
                     for standard in standards_data:
@@ -321,9 +342,16 @@ def get_ccc_content():
                             logger.info(f"Fetching content for standard ID {standard['id']}")
                             
                             content_response = requests.get(content_url, timeout=10)
+                            logger.info(f"Content API response status: {content_response.status_code}")
+                            
                             if content_response.status_code == 200:
                                 content_items = content_response.json()
                                 logger.info(f"Found {len(content_items)} content items for standard")
+                                
+                                # If we got content items, log a sample
+                                if content_items and len(content_items) > 0:
+                                    sample_content = content_items[0]
+                                    logger.info(f"Sample content from API: {sample_content.get('id')} - {sample_content.get('name')} - Type: {sample_content.get('type')}")
                                 
                                 # Transform items to our expected format
                                 for item in content_items:
@@ -337,6 +365,8 @@ def get_ccc_content():
                                     })
             except Exception as api_err:
                 logger.error(f"Error fetching from CCC API: {str(api_err)}")
+                # Log the full exception for debugging
+                logger.exception("CCC API exception details:")
         
         logger.info(f"Returning {len(filtered_items)} CCC content items")
         return jsonify(filtered_items)

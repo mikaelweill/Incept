@@ -57,4 +57,14 @@ temp/
 *.json
 *.csv
 ccc_structure.json
-curriculum_structure.json 
+curriculum_structure.json
+
+# Database and sensitive credentials
+script_db.py
+db_schema.py
+alesson.key
+*.key
+data/
+
+# Allow specific JSON files for the app to use
+!app/data/*.json 

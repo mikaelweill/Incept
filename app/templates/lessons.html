@@ -222,7 +222,7 @@
                 function renderSampleQuestions(lesson) {
                     if (!lesson.sample_questions || lesson.sample_questions.length === 0) {
                         // If no sample questions in the lesson object, try to fetch them
-                        fetchSampleQuestionsFromAPI(lesson.id);
+                        fetchSampleQuestionsFromAPI(lesson.standard_code);
                         return '<p>Loading sample questions...</p>';
                     }
                     
@@ -243,33 +243,66 @@
                 }
                 
                 // Fallback function to fetch sample questions if not in the lesson object
-                function fetchSampleQuestionsFromAPI(lessonId) {
+                function fetchSampleQuestionsFromAPI(standardCode) {
                     const sampleQuestions = document.getElementById('sample-questions');
                     
-                    fetchFromAPI(`/api/ccc-content?lesson_id=${lessonId}`)
-                        .then(questions => {
-                            if (!questions || questions.length === 0) {
-                                sampleQuestions.innerHTML = '<p>No sample questions available</p>';
+                    fetchFromAPI(`/api/ccc-content?standard_code=${standardCode}`)
+                        .then(items => {
+                            if (!items || items.length === 0) {
+                                sampleQuestions.innerHTML = '<p>No sample questions available from CCC</p>';
                                 return;
                             }
                             
-                            // Build questions list
-                            let questionsList = '<div class="questions-list">';
-                            questions.forEach((question, index) => {
-                                questionsList += `
-                                    <div class="question-item">
-                                        <h5>Question ${index + 1}</h5>
-                                        <div class="question-content">${question.title || 'Untitled Question'}</div>
-                                    </div>
-                                `;
-                            });
+                            // Group items by type
+                            const articles = items.filter(item => item.type === 'article' || item.type === 'text');
+                            const questions = items.filter(item => item.type === 'question' || item.type === 'assessment');
                             
-                            questionsList += '</div>';
-                            sampleQuestions.innerHTML = questionsList;
+                            // Build content display
+                            let contentHTML = '';
+                            
+                            // Display articles first if any
+                            if (articles.length > 0) {
+                                contentHTML += '<div class="ccc-section"><h5>Related Articles</h5><ul class="ccc-list">';
+                                articles.forEach(article => {
+                                    contentHTML += `
+                                        <li class="ccc-item" data-id="${article.id}">
+                                            <div class="ccc-item-title">${article.title || 'Untitled Article'}</div>
+                                            <button class="btn btn-sm btn-primary view-content-btn" 
+                                                onclick="viewCCCItem('${article.id}', 'article')">
+                                                View Article
+                                            </button>
+                                        </li>
+                                    `;
+                                });
+                                contentHTML += '</ul></div>';
+                            }
+                            
+                            // Display questions
+                            if (questions.length > 0) {
+                                contentHTML += '<div class="ccc-section"><h5>Sample Questions</h5><ul class="ccc-list">';
+                                questions.forEach((question, index) => {
+                                    contentHTML += `
+                                        <li class="ccc-item" data-id="${question.id}">
+                                            <div class="ccc-item-title">Question ${index + 1}: ${question.title || 'Untitled'}</div>
+                                            <button class="btn btn-sm btn-info view-content-btn" 
+                                                onclick="viewCCCItem('${question.id}', 'question')">
+                                                View Question
+                                            </button>
+                                        </li>
+                                    `;
+                                });
+                                contentHTML += '</ul></div>';
+                            }
+                            
+                            if (contentHTML === '') {
+                                sampleQuestions.innerHTML = '<p>No related content found in CCC</p>';
+                            } else {
+                                sampleQuestions.innerHTML = contentHTML;
+                            }
                         })
                         .catch(error => {
                             console.error("Error fetching sample questions:", error);
-                            sampleQuestions.innerHTML = '<p>Error loading sample questions</p>';
+                            sampleQuestions.innerHTML = '<p class="error">Error loading sample questions</p>';
                         });
                 }
                 
@@ -315,6 +348,178 @@
                 errorMessage.style.display = 'block';
             }
         });
+        
+        document.getElementById('back-button').addEventListener('click', () => {
+            // Show the lessons list again, hide the detail view
+            document.getElementById('lesson-detail').style.display = 'none';
+            document.getElementById('lessons-list').style.display = 'block';
+        });
+        
+        // Function to view a specific CCC item (article or question)
+        function viewCCCItem(itemId, itemType) {
+            console.log(`Viewing ${itemType} with ID: ${itemId}`);
+            
+            // Show loading dialog
+            const modal = document.getElementById('ccc-modal');
+            const modalContent = document.getElementById('ccc-modal-content');
+            const modalTitle = document.getElementById('ccc-modal-title');
+            
+            modalTitle.textContent = `Loading ${itemType}...`;
+            modalContent.innerHTML = '<div class="spinner"></div>';
+            modal.style.display = 'block';
+            
+            // Fetch the item details
+            fetchFromAPI(`/api/ccc-item/${itemId}`)
+                .then(item => {
+                    if (!item || Object.keys(item).length === 0) {
+                        modalContent.innerHTML = '<p class="error">Item not found</p>';
+                        return;
+                    }
+                    
+                    // Set the modal title
+                    modalTitle.textContent = item.title || `${itemType.charAt(0).toUpperCase() + itemType.slice(1)}`;
+                    
+                    // Format different types of content differently
+                    let contentHTML = '';
+                    
+                    if (itemType === 'article') {
+                        // For articles, display rich text content
+                        contentHTML = `
+                            <div class="ccc-article-content">
+                                ${formatArticleContent(item)}
+                            </div>
+                        `;
+                    } else if (itemType === 'question') {
+                        // For questions, display question, options, and answer
+                        contentHTML = `
+                            <div class="ccc-question-content">
+                                ${formatQuestionContent(item)}
+                            </div>
+                        `;
+                    }
+                    
+                    modalContent.innerHTML = contentHTML;
+                })
+                .catch(error => {
+                    console.error(`Error fetching ${itemType}:`, error);
+                    modalContent.innerHTML = `<p class="error">Error loading ${itemType}: ${error.message}</p>`;
+                });
+        }
+        
+        // Function to format article content
+        function formatArticleContent(article) {
+            // Extract content from the article based on its structure
+            let content = '';
+            
+            if (article.content && typeof article.content === 'object') {
+                // If it's a structured content object
+                if (article.content.text) {
+                    content = article.content.text;
+                } else if (article.content.content) {
+                    content = article.content.content;
+                }
+            } else if (typeof article.content === 'string') {
+                // If it's directly a string
+                content = article.content;
+            } else if (article.text) {
+                // Fallback to text field
+                content = article.text;
+            }
+            
+            // If we still don't have content, use a fallback
+            if (!content) {
+                return `<p>No content available for this article (ID: ${article.id})</p>`;
+            }
+            
+            // Wrap in paragraphs if needed
+            if (!content.includes('<p>')) {
+                content = content.split('\n\n').map(p => `<p>${p}</p>`).join('');
+            }
+            
+            return content;
+        }
+        
+        // Function to format question content
+        function formatQuestionContent(question) {
+            let content = '';
+            
+            // Extract question text
+            let questionText = '';
+            if (question.content && typeof question.content === 'object') {
+                if (question.content.text) {
+                    questionText = question.content.text;
+                } else if (question.content.question) {
+                    questionText = question.content.question;
+                }
+            } else if (typeof question.content === 'string') {
+                questionText = question.content;
+            } else if (question.text) {
+                questionText = question.text;
+            }
+            
+            // Add question text
+            content += `<div class="question-text">${questionText || 'Question text not available'}</div>`;
+            
+            // Add options if available
+            if (question.content && question.content.options) {
+                content += '<div class="question-options"><h5>Options:</h5><ul>';
+                question.content.options.forEach((option, index) => {
+                    content += `<li>${String.fromCharCode(65 + index)}. ${option}</li>`;
+                });
+                content += '</ul></div>';
+            }
+            
+            // Add answer if available
+            if (question.content && question.content.answer) {
+                content += `<div class="question-answer"><h5>Answer:</h5><p>${question.content.answer}</p></div>`;
+            }
+            
+            return content;
+        }
+        
+        // Close the modal when the close button is clicked
+        document.addEventListener('DOMContentLoaded', () => {
+            const closeModal = document.getElementById('close-modal');
+            if (closeModal) {
+                closeModal.addEventListener('click', () => {
+                    document.getElementById('ccc-modal').style.display = 'none';
+                });
+            }
+            
+            // Also close modal when clicking outside of it
+            window.addEventListener('click', (event) => {
+                const modal = document.getElementById('ccc-modal');
+                if (event.target === modal) {
+                    modal.style.display = 'none';
+                }
+            });
+            
+            // Close modal with footer button too
+            const closeModalBtn = document.getElementById('close-modal-btn');
+            if (closeModalBtn) {
+                closeModalBtn.addEventListener('click', () => {
+                    document.getElementById('ccc-modal').style.display = 'none';
+                });
+            }
+        });
     </script>
+    
+    <!-- Modal for displaying CCC content -->
+    <div id="ccc-modal" class="modal">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="ccc-modal-title">CCC Content</h5>
+                    <button type="button" class="close" id="close-modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div id="ccc-modal-content"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" id="close-modal-btn">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
 </body>
 </html> 
