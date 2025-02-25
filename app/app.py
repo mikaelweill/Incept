@@ -232,6 +232,11 @@ def visualization_view():
     """Visualization view page"""
     return render_template('visualization.html')
 
+@app.route('/verification')
+def verification_view():
+    """Render the question verification interface"""
+    return render_template('verification.html')
+
 # API Routes
 @app.route('/api/standards', methods=['GET'])
 def get_standards():
@@ -516,6 +521,176 @@ def get_structure():
         
     except Exception as e:
         print(f"Error in get_structure: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/available-question-filters', methods=['GET'])
+def get_available_question_filters():
+    """
+    Get all available standards, lessons, and difficulties from the curriculum structure
+    This helps the user know what options will actually return results
+    """
+    try:
+        # Load curriculum structure from file
+        curriculum_file = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+            'data', 
+            'curriculum_structure.json'
+        )
+        
+        # Check if file exists
+        if not os.path.exists(curriculum_file):
+            return jsonify({'error': 'Curriculum file not found'}), 404
+            
+        # Load curriculum data
+        with open(curriculum_file, 'r') as f:
+            curriculum_data = json.load(f)
+        
+        # Extract unique standards, lessons, and a default difficulty
+        standards = set()
+        lessons = {}  # Map standard_code -> list of lessons
+        
+        # Process all grades in the curriculum
+        for grade, grade_data in curriculum_data.get('curriculum', {}).items():
+            for lesson in grade_data.get('lessons', []):
+                standard_code = lesson.get('standard_code')
+                if standard_code:
+                    standards.add(standard_code)
+                    
+                    # Add this lesson to the standard
+                    if standard_code not in lessons:
+                        lessons[standard_code] = []
+                    
+                    lesson_info = {
+                        'id': lesson.get('title'),  # Use title as ID since that's what we'll filter by
+                        'title': lesson.get('title')
+                    }
+                    lessons[standard_code].append(lesson_info)
+        
+        # We'll use fixed difficulties since they're not explicitly in the curriculum
+        difficulties = ['easy', 'medium', 'hard']
+        
+        return jsonify({
+            'standards': sorted(list(standards)),
+            'lessons': lessons,
+            'difficulties': difficulties
+        })
+    
+    except Exception as e:
+        logger.error(f"Error retrieving question filters: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/random-question', methods=['GET'])
+def get_random_question():
+    """
+    Get a random question based on filters from the curriculum structure
+    Filters:
+    - standard: NGSS standard code
+    - lesson: lesson title
+    - difficulty: easy, medium, hard (not used in current version)
+    """
+    try:
+        # Get filter parameters
+        standard = request.args.get('standard')
+        lesson = request.args.get('lesson')
+        difficulty = request.args.get('difficulty')  # Not used for filtering currently
+        
+        # Load curriculum structure from file
+        curriculum_file = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+            'data', 
+            'curriculum_structure.json'
+        )
+        
+        # Check if file exists
+        if not os.path.exists(curriculum_file):
+            return jsonify({'error': 'Curriculum file not found'}), 404
+            
+        # Load curriculum data
+        with open(curriculum_file, 'r') as f:
+            curriculum_data = json.load(f)
+        
+        # Collect all matching questions based on filters
+        matching_questions = []
+        
+        # Iterate through all grades and lessons
+        for grade, grade_data in curriculum_data.get('curriculum', {}).items():
+            for lesson_data in grade_data.get('lessons', []):
+                # Check if standard and lesson match our filters
+                if standard and lesson_data.get('standard_code') != standard:
+                    continue
+                    
+                if lesson and lesson_data.get('title') != lesson:
+                    continue
+                
+                # If we got here, this lesson matches our filters
+                # Add all sample questions from this lesson
+                for question_text in lesson_data.get('sample_questions', []):
+                    # Create a question object with the available information
+                    question = {
+                        'question_text': question_text,
+                        'standard_code': lesson_data.get('standard_code'),
+                        'standard_description': lesson_data.get('standard_description'),
+                        'lesson_title': lesson_data.get('title'),
+                        'grade': grade
+                    }
+                    matching_questions.append(question)
+        
+        # Check if we have any questions after filtering
+        if not matching_questions:
+            return jsonify({'error': 'No questions match the specified filters'}), 404
+            
+        # Select a random question
+        import random
+        question = random.choice(matching_questions)
+        
+        return jsonify(question)
+    
+    except Exception as e:
+        logger.error(f"Error fetching random question: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/verify-question', methods=['POST'])
+def verify_question():
+    """
+    Verify the quality of a question using LLM
+    Expected body:
+    {
+        "question_text": "...",
+        "choices": [
+            {"text": "...", "is_correct": true},
+            {"text": "...", "is_correct": false},
+            ...
+        ],
+        "standard_code": "...",
+        "lesson_title": "...",
+        ...
+    }
+    """
+    try:
+        # Get question data from request
+        question_data = request.get_json()
+        
+        if not question_data:
+            return jsonify({'error': 'No question data provided'}), 400
+            
+        # Import the QuestionGrader
+        from src.services.grader import QuestionGrader
+        
+        # Initialize grader
+        grader = QuestionGrader()
+        
+        # Grade the question
+        # This is an async function, so we need to run it in an event loop
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(grader.grade_question(question_data))
+        loop.close()
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error verifying question: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
