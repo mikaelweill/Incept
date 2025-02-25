@@ -279,67 +279,175 @@ function createVisualization(nodes, links) {
 function updateVisualization(nodes, links) {
     console.log(`Updating visualization with ${nodes.length} nodes and ${links.length} links`);
     
-    if (!svg || !simulation) {
-        console.error('Visualization not initialized');
-        return;
-    }
+    // Process links to ensure source and target are objects
+    const processedLinks = links.map(d => {
+        // Create a new link object to avoid modifying the original data
+        return {
+            source: typeof d.source === 'object' ? d.source.id : d.source,
+            target: typeof d.target === 'object' ? d.target.id : d.target,
+            type: d.type || 'default'
+        };
+    });
     
-    // Update link elements
-    link = link.data(links, d => `${d.source.id || d.source}-${d.target.id || d.target}`);
+    // Update links
+    link = link.data(processedLinks, d => `${d.source}-${d.target}`);
     link.exit().remove();
     
-    const linkEnter = link.enter()
-        .append('line')
-        .attr('stroke-width', d => Math.sqrt(d.value) || 1)
-        .attr('stroke', '#999');
+    const linkEnter = link.enter().append('line')
+        .attr('stroke-width', 2)
+        .attr('stroke', d => d.type === 'standard-lesson' ? '#666' : '#999')
+        .attr('stroke-opacity', 0.6);
     
     link = linkEnter.merge(link);
     
-    // Update node elements
+    // Update nodes
     node = node.data(nodes, d => d.id);
     node.exit().remove();
     
-    const nodeEnter = node.enter()
-        .append('g')
+    const nodeEnter = node.enter().append('g')
         .attr('class', 'node')
         .call(d3.drag()
-            .on('start', dragstarted)
+            .on('start', dragStarted)
             .on('drag', dragged)
-            .on('end', dragended)
-        )
+            .on('end', dragEnded))
         .on('click', showNodeDetails);
     
-    // Add circles to node groups
+    // Add circles for the nodes
     nodeEnter.append('circle')
-        .attr('r', 10)
+        .attr('r', d => d.type === 'standard' ? 10 : 7)
         .attr('fill', d => nodeColors[d.type] || '#999')
         .attr('stroke', '#fff')
         .attr('stroke-width', 1.5);
     
-    // Add text labels
+    // Add labels for the nodes
     nodeEnter.append('text')
-        .attr('dy', 4)
+        .attr('dy', -15)
         .attr('text-anchor', 'middle')
-        .text(d => d.label.substring(0, 15) + (d.label.length > 15 ? '...' : ''))
-        .style('font-size', '10px')
-        .style('pointer-events', 'none')
-        .attr('fill', '#fff');
-    
-    // Append title for tooltip
-    nodeEnter.append('title')
-        .text(d => `${d.type}: ${d.label}`);
+        .text(d => getNodeLabel(d))
+        .attr('font-size', '10px')
+        .attr('fill', '#333');
     
     node = nodeEnter.merge(node);
     
     // Update simulation
-    simulation.nodes(nodes).on('tick', ticked);
-    simulation.force('link').links(links);
+    simulation.nodes(nodes)
+        .on('tick', ticked);
+    
+    simulation.force('link')
+        .links(processedLinks);
     
     // Restart simulation
     simulation.alpha(1).restart();
     
-    // Update legend
-    updateLegend();
+    // Function to handle simulation ticks
+    function ticked() {
+        link
+            .attr('x1', d => d.source.x)
+            .attr('y1', d => d.source.y)
+            .attr('x2', d => d.target.x)
+            .attr('y2', d => d.target.y);
+        
+        node
+            .attr('transform', d => `translate(${d.x},${d.y})`);
+    }
+}
+
+/**
+ * Get label text for a node
+ * @param {Object} node - The node data
+ * @returns {string} - The label for the node
+ */
+function getNodeLabel(node) {
+    if (!node || !node.data) return 'Unknown';
+    
+    if (node.type === 'standard') {
+        return node.data.code || node.id;
+    } else if (node.type === 'lesson') {
+        return node.data.title || 'Lesson';
+    } else {
+        return node.data.title || node.type || 'Item';
+    }
+}
+
+/**
+ * Show detailed information about a node when clicked
+ * @param {Object} event - The click event
+ * @param {Object} d - The node data
+ */
+function showNodeDetails(event, d) {
+    console.log('Showing details for node:', d);
+    
+    // Get or create the node details element
+    let detailsEl = document.getElementById('node-details');
+    if (!detailsEl) {
+        console.log('Creating node-details element');
+        
+        // Create the details panel
+        detailsEl = document.createElement('div');
+        detailsEl.id = 'node-details';
+        detailsEl.className = 'details-panel';
+        detailsEl.style.position = 'absolute';
+        detailsEl.style.right = '20px';
+        detailsEl.style.top = '100px';
+        detailsEl.style.width = '300px';
+        detailsEl.style.backgroundColor = 'white';
+        detailsEl.style.border = '1px solid #ddd';
+        detailsEl.style.boxShadow = '0 2px 5px rgba(0,0,0,0.1)';
+        detailsEl.style.padding = '15px';
+        detailsEl.style.zIndex = '1000';
+        
+        // Add a close button
+        const closeBtn = document.createElement('button');
+        closeBtn.innerHTML = '✕';
+        closeBtn.style.position = 'absolute';
+        closeBtn.style.right = '10px';
+        closeBtn.style.top = '10px';
+        closeBtn.style.background = 'none';
+        closeBtn.style.border = 'none';
+        closeBtn.style.cursor = 'pointer';
+        closeBtn.onclick = function() {
+            detailsEl.style.display = 'none';
+        };
+        
+        detailsEl.appendChild(closeBtn);
+        
+        // Add to the page
+        const container = document.getElementById('visualization');
+        if (container) {
+            container.parentNode.appendChild(detailsEl);
+        } else {
+            document.body.appendChild(detailsEl);
+        }
+    }
+    
+    let html = '<div class="node-details-content">';
+    
+    if (d.type === 'standard') {
+        html += `<h3>${d.data.code || 'Standard'}</h3>`;
+        html += `<p><strong>Name:</strong> ${d.data.name || 'No name available'}</p>`;
+        html += `<p><strong>Description:</strong> ${d.data.description || 'No description available'}</p>`;
+        html += `<p><strong>Grade:</strong> ${d.data.grade || 'Not specified'}</p>`;
+    } else if (d.type === 'lesson') {
+        html += `<h3>${d.data.title || 'Lesson'}</h3>`;
+        html += `<p><strong>Standard:</strong> ${d.data.standard_code || 'Not linked to a standard'}</p>`;
+        html += `<p><strong>Description:</strong> ${d.data.description || d.data.summary || 'No description available'}</p>`;
+        
+        if (d.data.objectives && d.data.objectives.length > 0) {
+            html += '<p><strong>Objectives:</strong></p><ul>';
+            d.data.objectives.forEach(obj => {
+                html += `<li>${obj}</li>`;
+            });
+            html += '</ul>';
+        }
+    } else {
+        html += `<h3>${d.data.title || 'Content Item'}</h3>`;
+        html += `<p><strong>Type:</strong> ${d.data.type || 'Unknown'}</p>`;
+        html += `<p><strong>Description:</strong> ${d.data.description || 'No description available'}</p>`;
+    }
+    
+    html += '</div>';
+    detailsEl.innerHTML = html;
+    detailsEl.style.display = 'block';
 }
 
 /**
@@ -347,7 +455,7 @@ function updateVisualization(nodes, links) {
  * @param {Event} event - The drag event
  * @param {Object} d - The node data
  */
-function dragstarted(event, d) {
+function dragStarted(event, d) {
     if (!event.active) simulation.alphaTarget(0.3).restart();
     d.fx = d.x;
     d.fy = d.y;
@@ -358,167 +466,8 @@ function dragged(event, d) {
     d.fy = event.y;
 }
 
-function dragended(event, d) {
+function dragEnded(event, d) {
     if (!event.active) simulation.alphaTarget(0);
     d.fx = null;
     d.fy = null;
-}
-
-/**
- * Tick function for updating element positions
- */
-function ticked() {
-    link
-        .attr('x1', d => d.source.x)
-        .attr('y1', d => d.source.y)
-        .attr('x2', d => d.target.x)
-        .attr('y2', d => d.target.y);
-    
-    node
-        .attr('transform', d => `translate(${d.x}, ${d.y})`);
-}
-
-/**
- * Update the legend
- */
-function updateLegend() {
-    const legend = d3.select('#visualization-legend');
-    if (legend.empty()) return;
-    
-    legend.html('');
-    
-    const legendItems = [
-        { type: 'standard', label: 'Standards' },
-        { type: 'lesson', label: 'Lessons' },
-        { type: 'question', label: 'Questions' },
-        { type: 'article', label: 'Articles' }
-    ];
-    
-    legendItems.forEach(item => {
-        const div = legend.append('div')
-            .attr('class', 'legend-item');
-        
-        div.append('span')
-            .attr('class', 'legend-color')
-            .style('background-color', nodeColors[item.type] || '#999');
-        
-        div.append('span')
-            .text(item.label);
-    });
-}
-
-/**
- * Show node details in the detail panel
- * @param {Event} event - The click event
- * @param {Object} d - The node data
- */
-function showNodeDetails(event, d) {
-    console.log('Showing details for node:', d);
-    
-    const detailPanel = document.getElementById('detail-panel');
-    const detailTitle = document.getElementById('detail-title');
-    const detailContent = document.getElementById('detail-content');
-    
-    if (!detailPanel || !detailTitle || !detailContent) {
-        console.warn('Detail panel elements not found');
-        return;
-    }
-    
-    // Update panel title
-    detailTitle.textContent = d.label;
-    
-    // Clear previous content
-    detailContent.innerHTML = '';
-    
-    // Create content based on node type
-    if (d.type === 'standard') {
-        detailContent.innerHTML = `
-            <div class="detail-section">
-                <h4>Standard Code</h4>
-                <p>${d.data.code || 'N/A'}</p>
-            </div>
-            <div class="detail-section">
-                <h4>Description</h4>
-                <p>${d.data.description || 'No description available'}</p>
-            </div>
-            <div class="detail-section">
-                <h4>Grade</h4>
-                <p>${d.data.grade || 'Not specified'}</p>
-            </div>
-        `;
-        
-        // Add link to lessons for this standard
-        const lessonsLink = document.createElement('button');
-        lessonsLink.textContent = 'View Related Lessons';
-        lessonsLink.className = 'button';
-        lessonsLink.addEventListener('click', () => {
-            window.location.href = `/lessons?standard_code=${d.data.code}`;
-        });
-        
-        detailContent.appendChild(lessonsLink);
-    } else if (d.type === 'lesson') {
-        detailContent.innerHTML = `
-            <div class="detail-section">
-                <h4>Standard</h4>
-                <p>${d.data.standard_code || 'Not linked to a standard'}</p>
-            </div>
-            <div class="detail-section">
-                <h4>Grade</h4>
-                <p>${d.data.grade || 'Not specified'}</p>
-            </div>
-            <div class="detail-section">
-                <h4>Description</h4>
-                <p>${d.data.description || 'No description available'}</p>
-            </div>
-        `;
-        
-        // Add questions if available
-        if (d.data.sample_questions && d.data.sample_questions.length > 0) {
-            const questionsSection = document.createElement('div');
-            questionsSection.className = 'detail-section';
-            questionsSection.innerHTML = `<h4>Sample Questions (${d.data.sample_questions.length})</h4>`;
-            
-            // Add a limited number of questions to avoid overwhelming the panel
-            const maxQuestions = 3;
-            for (let i = 0; i < Math.min(maxQuestions, d.data.sample_questions.length); i++) {
-                const questionDiv = document.createElement('div');
-                questionDiv.className = 'sample-question';
-                questionDiv.innerHTML = `<p>${d.data.sample_questions[i].substring(0, 150)}${d.data.sample_questions[i].length > 150 ? '...' : ''}</p>`;
-                questionsSection.appendChild(questionDiv);
-            }
-            
-            // Add a message if there are more questions
-            if (d.data.sample_questions.length > maxQuestions) {
-                const moreDiv = document.createElement('div');
-                moreDiv.className = 'more-indicator';
-                moreDiv.textContent = `+ ${d.data.sample_questions.length - maxQuestions} more questions`;
-                questionsSection.appendChild(moreDiv);
-            }
-            
-            detailContent.appendChild(questionsSection);
-        }
-    } else if (d.type === 'question' || d.type === 'article') {
-        detailContent.innerHTML = `
-            <div class="detail-section">
-                <h4>Type</h4>
-                <p>${d.type.charAt(0).toUpperCase() + d.type.slice(1)}</p>
-            </div>
-            <div class="detail-section">
-                <h4>Related Standard</h4>
-                <p>${d.data.standard_code || 'Not specified'}</p>
-            </div>
-            <div class="detail-section">
-                <h4>Content</h4>
-                <div class="content-preview">${d.data.content && d.data.content.body ? d.data.content.body.substring(0, 200) + '...' : 'No preview available'}</div>
-            </div>
-        `;
-    }
-    
-    // Show the detail panel
-    detailPanel.style.display = 'block';
-    
-    // Add close button functionality
-    document.getElementById('close-details').addEventListener('click', () => {
-        detailPanel.style.display = 'none';
-    });
 } 

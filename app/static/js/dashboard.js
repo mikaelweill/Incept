@@ -121,10 +121,10 @@ function updateProgressBar(id, value, max) {
 }
 
 /**
- * Initialize a mini visualization for the dashboard
+ * Initialize mini visualization for the dashboard
  */
 function initMiniVisualization() {
-    console.log("Initializing mini visualization");
+    console.log("Initializing mini visualization...");
     
     const container = document.getElementById('mini-visualization');
     if (!container) {
@@ -132,121 +132,132 @@ function initMiniVisualization() {
         return;
     }
     
-    // Show loading indicator
-    container.innerHTML = '<div class="spinner"></div>';
+    // Show loading indicator for mini visualization
+    container.innerHTML = '<div class="spinner"></div><p>Loading...</p>';
     
-    // Fetch structure data
+    // Fetch a limited set of data for the mini visualization
     fetchFromAPI('/api/structure')
         .then(data => {
+            console.log("Mini visualization data loaded:", { 
+                nodeCount: data.nodes ? data.nodes.length : 0, 
+                linkCount: data.links ? data.links.length : 0 
+            });
+            
             if (!data || !data.nodes || !data.links) {
-                throw new Error("Invalid structure data");
+                throw new Error("Invalid structure data received");
             }
             
-            console.log(`Structure data contains ${data.nodes.length} nodes and ${data.links.length} links`);
-            
-            // Limit data size for mini visualization
+            // Limit data size for mini visualization (max 50 nodes)
             let nodes = data.nodes;
             let links = data.links;
             
             if (nodes.length > 50) {
-                console.log("Limiting visualization to 50 nodes");
-                // Keep standards and some lessons
-                const standardNodes = nodes.filter(n => n.type === 'standard');
-                const lessonNodes = nodes.filter(n => n.type === 'lesson').slice(0, 50 - standardNodes.length);
-                nodes = [...standardNodes, ...lessonNodes];
+                // Filter to keep only standard and lesson nodes, not content items
+                nodes = nodes.filter(node => 
+                    node.type === 'standard' || node.type === 'lesson'
+                ).slice(0, 50);
                 
-                // Keep only links between these nodes
-                const nodeIds = new Set(nodes.map(n => n.id));
-                links = links.filter(l => 
-                    nodeIds.has(l.source) && nodeIds.has(l.target)
+                // Keep only links between the remaining nodes
+                const nodeIds = new Set(nodes.map(node => node.id));
+                links = links.filter(link => 
+                    nodeIds.has(link.source.id || link.source) && 
+                    nodeIds.has(link.target.id || link.target)
                 );
             }
             
-            // Create the mini visualization
             createMiniVisualization(container, nodes, links);
         })
         .catch(error => {
             console.error("Error loading mini visualization:", error);
-            container.innerHTML = `<div class="error-message">Error loading visualization: ${error.message}</div>`;
+            container.innerHTML = `<div class="error-message">Error loading mini visualization: ${error.message || 'Unknown error'}</div>`;
         });
 }
 
 /**
- * Creates a mini force-directed graph visualization
+ * Create a small force-directed graph visualization
+ * @param {HTMLElement} container - The container element
+ * @param {Array} nodes - Node data
+ * @param {Array} links - Link data
  */
 function createMiniVisualization(container, nodes, links) {
     // Clear the container
     container.innerHTML = '';
     
-    // Set dimensions
+    // Set dimensions based on container
     const width = container.clientWidth;
-    const height = container.clientHeight || 300;
+    const height = container.clientHeight || 250;
     
-    // Create SVG
+    // Create SVG element
     const svg = d3.select(container)
-        .append("svg")
-        .attr("width", width)
-        .attr("height", height)
-        .attr("viewBox", [0, 0, width, height])
-        .attr("class", "mini-visualization-svg");
-        
-    // Define node colors by type
-    const colors = {
-        'standard': '#4285F4',
-        'lesson': '#34A853',
-        'question': '#FBBC05',
-        'article': '#EA4335'
+        .append('svg')
+        .attr('width', width)
+        .attr('height', height)
+        .attr('viewBox', [0, 0, width, height]);
+    
+    // Define colors for node types
+    const nodeColors = {
+        'standard': '#4285F4', // Blue
+        'lesson': '#34A853',   // Green
+        'question': '#FBBC05', // Yellow
+        'article': '#EA4335'   // Red
     };
     
-    // Create the simulation with forces
+    // Create a simulation with forces
     const simulation = d3.forceSimulation(nodes)
-        .force("link", d3.forceLink(links).id(d => d.id))
-        .force("charge", d3.forceManyBody().strength(-30))
-        .force("center", d3.forceCenter(width / 2, height / 2))
-        .force("collide", d3.forceCollide(10));
+        .force('link', d3.forceLink(links).id(d => d.id).distance(30))
+        .force('charge', d3.forceManyBody().strength(-100))
+        .force('center', d3.forceCenter(width / 2, height / 2))
+        .force('collision', d3.forceCollide().radius(10));
     
-    // Create links
-    const link = svg.append("g")
-        .attr("stroke", "#999")
-        .attr("stroke-opacity", 0.6)
-        .selectAll("line")
+    // Create the links
+    const link = svg.append('g')
+        .selectAll('line')
         .data(links)
-        .join("line")
-        .attr("stroke-width", d => Math.sqrt(d.value));
+        .enter().append('line')
+        .attr('stroke', '#999')
+        .attr('stroke-opacity', 0.6)
+        .attr('stroke-width', 1);
     
-    // Create nodes
-    const node = svg.append("g")
-        .selectAll("circle")
+    // Create the nodes
+    const node = svg.append('g')
+        .selectAll('circle')
         .data(nodes)
-        .join("circle")
-        .attr("r", 5)
-        .attr("fill", d => colors[d.type] || "#999")
-        .attr("stroke", "#fff")
-        .attr("stroke-width", 1.5)
-        .append("title")
-        .text(d => d.label);
+        .enter().append('circle')
+        .attr('r', d => d.type === 'standard' ? 6 : 4)
+        .attr('fill', d => nodeColors[d.type] || '#999')
+        .attr('stroke', '#fff')
+        .attr('stroke-width', 1)
+        .append('title')
+        .text(d => {
+            if (d.type === 'standard') {
+                return `Standard: ${d.data.code}`;
+            } else if (d.type === 'lesson') {
+                return `Lesson: ${d.data.title || 'Unnamed'}`;
+            } else {
+                return d.data.title || d.type;
+            }
+        });
     
-    // Update node positions on simulation tick
-    simulation.on("tick", () => {
-        link
-            .attr("x1", d => d.source.x)
-            .attr("y1", d => d.source.y)
-            .attr("x2", d => d.target.x)
-            .attr("y2", d => d.target.y);
-            
-        node
-            .attr("cx", d => d.x)
-            .attr("cy", d => d.y);
+    // Add interactivity - hover effect
+    node.on('mouseover', function(event, d) {
+        d3.select(this).attr('r', d => d.type === 'standard' ? 8 : 6);
+    })
+    .on('mouseout', function(event, d) {
+        d3.select(this).attr('r', d => d.type === 'standard' ? 6 : 4);
     });
     
-    // Add hover effects
-    d3.selectAll("circle")
-        .on("mouseover", function() {
-            d3.select(this).attr("r", 8);
-        })
-        .on("mouseout", function() {
-            d3.select(this).attr("r", 5);
-        });
+    // Update positions on simulation tick
+    simulation.on('tick', () => {
+        link
+            .attr('x1', d => d.source.x)
+            .attr('y1', d => d.source.y)
+            .attr('x2', d => d.target.x)
+            .attr('y2', d => d.target.y);
+        
+        node
+            .attr('cx', d => d.x)
+            .attr('cy', d => d.y);
+    });
 }
 
 // Initialize the dashboard when the DOM is loaded

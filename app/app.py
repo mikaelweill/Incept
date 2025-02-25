@@ -383,114 +383,110 @@ def api_ccc_item(item_id):
         logger.error(f"Error in CCC item API: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/structure', methods=['GET'])
+@app.route('/api/structure')
 def get_structure():
-    """
-    Returns a network structure for visualization, combining standards, lessons, and content.
-    """
     try:
-        logger.info("Fetching data for structure API endpoint")
+        print("Fetching curriculum and CCC data for structure...")
         curriculum_data = load_curriculum_structure()
         ccc_data = load_ccc_structure()
         
-        # Check if we have valid data
-        if not curriculum_data or ('standards' not in curriculum_data and 'lessons' not in curriculum_data):
-            logger.error("ERROR: Invalid curriculum data structure")
-            return jsonify({"error": "Invalid curriculum data structure"}), 500
-            
+        print("Building structure data...")
+        
+        # Validate curriculum data structure
+        if not curriculum_data or 'standards' not in curriculum_data or 'lessons' not in curriculum_data:
+            return jsonify({'error': 'Invalid curriculum data structure'}), 400
+        
         # Extract standards and lessons
         standards = curriculum_data.get('standards', [])
         lessons = curriculum_data.get('lessons', [])
+        print(f"Found {len(standards)} standards and {len(lessons)} lessons")
         
-        logger.info(f"Building structure with {len(standards)} standards and {len(lessons)} lessons")
-        
-        # Create nodes and links
+        # Prepare data structures
         nodes = []
         links = []
-        node_ids = set()  # To track which nodes have been added
+        added_node_ids = set()
         
-        # Add standards as nodes
+        # Process standards
         for standard in standards:
-            standard_id = f"standard-{standard.get('code')}"
-            if standard_id not in node_ids:
+            # Use the standard code directly as the ID to ensure consistency
+            standard_id = standard.get('code', '').replace('.', '_')
+            
+            if not standard_id:
+                continue
+                
+            # Add standard node if not already added
+            if standard_id not in added_node_ids:
                 nodes.append({
-                    "id": standard_id,
-                    "label": standard.get('code'),
-                    "type": "standard",
-                    "data": standard
+                    'id': standard_id,
+                    'type': 'standard',
+                    'data': standard
                 })
-                node_ids.add(standard_id)
+                added_node_ids.add(standard_id)
         
-        # Add lessons as nodes and create links to standards
+        # Process lessons
         for lesson in lessons:
-            lesson_id = f"lesson-{lesson.get('id')}"
-            if lesson_id not in node_ids:
-                nodes.append({
-                    "id": lesson_id,
-                    "label": lesson.get('title', 'Unnamed Lesson'),
-                    "type": "lesson",
-                    "data": lesson
-                })
-                node_ids.add(lesson_id)
+            lesson_id = lesson.get('id') or f"lesson-{len(added_node_ids)}"
             
-            # Create link to standard
-            standard_code = lesson.get('standard_code')
+            # Add lesson node
+            if lesson_id not in added_node_ids:
+                nodes.append({
+                    'id': lesson_id,
+                    'type': 'lesson',
+                    'data': lesson
+                })
+                added_node_ids.add(lesson_id)
+            
+            # Link lesson to its standard
+            standard_code = lesson.get('standard_code', '')
             if standard_code:
-                standard_id = f"standard-{standard_code}"
+                # Convert the standard code to match the format used for node IDs
+                standard_id = standard_code.replace('.', '_')
+                
+                # Add link from standard to lesson
                 links.append({
-                    "source": standard_id,
-                    "target": lesson_id,
-                    "value": 1
+                    'source': standard_id,
+                    'target': lesson_id,
+                    'type': 'standard-lesson'
                 })
         
-        # Add content items from CCC data if available
-        if ccc_data and 'items' in ccc_data:
-            # Limit to 100 items to avoid overwhelming visualization
-            ccc_items = ccc_data.get('items', [])[:100]
-            logger.info(f"Adding {len(ccc_items)} CCC items to visualization")
+        # Add content items from CCC data (limit to 100 to avoid overwhelming visualization)
+        if ccc_data and 'content_items' in ccc_data:
+            content_items = ccc_data.get('content_items', [])[:100]
             
-            for item in ccc_items:
-                item_id = f"{item.get('type', 'item')}-{item.get('id')}"
-                if item_id not in node_ids:
+            for item in content_items:
+                item_id = item.get('id') or f"content-{len(added_node_ids)}"
+                
+                # Add content item node
+                if item_id not in added_node_ids:
+                    item_type = item.get('type', 'article')
                     nodes.append({
-                        "id": item_id,
-                        "label": item.get('title', 'Unnamed Item'),
-                        "type": item.get('type', 'content'),
-                        "data": item
+                        'id': item_id,
+                        'type': item_type,
+                        'data': item
                     })
-                    node_ids.add(item_id)
+                    added_node_ids.add(item_id)
                 
-                # Link to lesson if available
-                lesson_id = item.get('lesson_id')
-                if lesson_id:
-                    lesson_node_id = f"lesson-{lesson_id}"
-                    links.append({
-                        "source": lesson_node_id,
-                        "target": item_id,
-                        "value": 1
-                    })
-                
-                # Link to standard if available
-                standard_code = item.get('standard_code')
-                if standard_code:
-                    standard_id = f"standard-{standard_code}"
-                    links.append({
-                        "source": standard_id,
-                        "target": item_id,
-                        "value": 0.5
-                    })
+                # Link content to lessons or standards
+                related_lessons = item.get('related_lessons', [])
+                for lesson_id in related_lessons:
+                    if lesson_id in added_node_ids:
+                        links.append({
+                            'source': item_id,
+                            'target': lesson_id,
+                            'type': 'content-lesson'
+                        })
         
         result = {
-            "nodes": nodes,
-            "links": links
+            'nodes': nodes,
+            'links': links
         }
         
-        logger.info(f"Structure endpoint returning {len(nodes)} nodes and {len(links)} links")
+        print(f"Returning structure with {len(nodes)} nodes and {len(links)} links")
         return jsonify(result)
+        
     except Exception as e:
-        logger.error(f"Error creating structure data: {str(e)}")
-        print(f"ERROR in structure endpoint: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        print(f"Error in get_structure: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5001) 

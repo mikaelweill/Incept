@@ -189,43 +189,69 @@
                         ` : ''}
                         <div class="detail-section">
                             <h4>Sample Questions</h4>
-                            <div id="sample-questions">Loading sample questions...</div>
+                            <div id="sample-questions">
+                                ${renderSampleQuestions(lesson)}
+                            </div>
                         </div>
                     `;
                     
                     // Show detail view, hide list
                     lessonDetail.style.display = 'block';
                     lessonsList.style.display = 'none';
+                }
+                
+                // Function to render sample questions from the lesson object
+                function renderSampleQuestions(lesson) {
+                    if (!lesson.sample_questions || lesson.sample_questions.length === 0) {
+                        // If no sample questions in the lesson object, try to fetch them
+                        fetchSampleQuestionsFromAPI(lesson.id);
+                        return '<p>Loading sample questions...</p>';
+                    }
                     
-                    // Fetch sample questions
-                    fetchFromAPI(`/api/ccc-content?lesson_id=${lesson.id}`)
+                    // Build questions list from the lesson object itself
+                    let questionsList = '<div class="questions-list">';
+                    
+                    lesson.sample_questions.forEach((question, index) => {
+                        questionsList += `
+                            <div class="question-item">
+                                <h5>Question ${index + 1}</h5>
+                                <div class="question-content markdown-content">${question}</div>
+                            </div>
+                        `;
+                    });
+                    
+                    questionsList += '</div>';
+                    return questionsList;
+                }
+                
+                // Fallback function to fetch sample questions if not in the lesson object
+                function fetchSampleQuestionsFromAPI(lessonId) {
+                    const sampleQuestions = document.getElementById('sample-questions');
+                    
+                    fetchFromAPI(`/api/ccc-content?lesson_id=${lessonId}`)
                         .then(questions => {
-                            const sampleQuestions = document.getElementById('sample-questions');
-                            
                             if (!questions || questions.length === 0) {
                                 sampleQuestions.innerHTML = '<p>No sample questions available</p>';
                                 return;
                             }
                             
                             // Build questions list
-                            const questionsList = document.createElement('div');
+                            let questionsList = '<div class="questions-list">';
                             questions.forEach((question, index) => {
-                                const questionItem = document.createElement('div');
-                                questionItem.className = 'question-item';
-                                questionItem.innerHTML = `
-                                    <h5>Question ${index + 1}</h5>
-                                    <div class="question-content">${question.title || 'Untitled Question'}</div>
+                                questionsList += `
+                                    <div class="question-item">
+                                        <h5>Question ${index + 1}</h5>
+                                        <div class="question-content">${question.title || 'Untitled Question'}</div>
+                                    </div>
                                 `;
-                                questionsList.appendChild(questionItem);
                             });
                             
-                            sampleQuestions.innerHTML = '';
-                            sampleQuestions.appendChild(questionsList);
+                            questionsList += '</div>';
+                            sampleQuestions.innerHTML = questionsList;
                         })
                         .catch(error => {
-                            console.error('Error fetching sample questions:', error);
-                            document.getElementById('sample-questions').innerHTML = 
-                                '<p class="error">Error loading sample questions</p>';
+                            console.error("Error fetching sample questions:", error);
+                            sampleQuestions.innerHTML = '<p>Error loading sample questions</p>';
                         });
                 }
                 

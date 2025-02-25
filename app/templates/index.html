@@ -13,7 +13,7 @@
         <h1>Curriculum Visualization</h1>
         <nav>
             <ul>
-                <li class="active"><a href="{{ url_for('index') }}">Dashboard</a></li>
+                <li class="active"><a href="{{ url_for('dashboard_view') }}">Dashboard</a></li>
                 <li><a href="{{ url_for('standards_view') }}">Standards</a></li>
                 <li><a href="{{ url_for('lessons_view') }}">Lessons</a></li>
                 <li><a href="{{ url_for('visualization_view') }}">Visualization</a></li>
@@ -22,65 +22,71 @@
     </header>
 
     <main>
-        <section class="dashboard-container">
-            <h2>Curriculum Dashboard</h2>
+        <div class="container">
+            <h2>Dashboard</h2>
             
-            <!-- Loading indicator -->
-            <div id="loading-indicator" class="loading-spinner">
+            <div id="loading-indicator" style="display: none;">
                 <div class="spinner"></div>
-                <p>Loading data...</p>
+                <p>Loading dashboard data...</p>
             </div>
             
-            <!-- Error message area -->
-            <div id="error-message" class="error-message" style="display: none;"></div>
+            <div id="error-message" style="display: none;" class="error-message"></div>
             
-            <!-- Dashboard content -->
-            <div id="dashboard-content" style="display: none;">
-                <!-- Key metrics section -->
-                <div class="metrics-container">
-                    <div class="metric-card">
-                        <h3>Standards</h3>
-                        <div class="metric-value" id="standards-count">0</div>
+            <div id="dashboard-content">
+                <div class="dashboard-row">
+                    <div class="dashboard-card">
+                        <h3>Curriculum Overview</h3>
+                        <div class="metric-grid">
+                            <div class="metric-item">
+                                <span class="metric-value" id="standards-count">0</span>
+                                <span class="metric-label">Standards</span>
+                            </div>
+                            <div class="metric-item">
+                                <span class="metric-value" id="lessons-count">0</span>
+                                <span class="metric-label">Lessons</span>
+                            </div>
+                            <div class="metric-item">
+                                <span class="metric-value" id="questions-count">0</span>
+                                <span class="metric-label">Questions</span>
+                            </div>
+                            <div class="metric-item">
+                                <span class="metric-value" id="grade-count">0</span>
+                                <span class="metric-label">Grades</span>
+                            </div>
+                        </div>
                     </div>
                     
-                    <div class="metric-card">
-                        <h3>Lessons</h3>
-                        <div class="metric-value" id="lessons-count">0</div>
-                    </div>
-                    
-                    <div class="metric-card">
-                        <h3>Questions</h3>
-                        <div class="metric-value" id="questions-count">0</div>
+                    <div class="dashboard-card">
+                        <h3>Curriculum Distribution</h3>
+                        <div id="mini-visualization" class="mini-viz-container"></div>
                     </div>
                 </div>
                 
-                <!-- Charts section -->
-                <div class="charts-container">
-                    <div class="chart-card">
-                        <h3>Standards Distribution</h3>
-                        <div id="standards-chart" class="chart"></div>
+                <div class="dashboard-row">
+                    <div class="dashboard-card">
+                        <h3>Recent Updates</h3>
+                        <ul class="update-list">
+                            <li>Curriculum standards loaded</li>
+                            <li>Lesson materials processed</li>
+                            <li>Relationships established</li>
+                        </ul>
                     </div>
                     
-                    <div class="chart-card">
-                        <h3>Lessons by Grade</h3>
-                        <div id="lessons-chart" class="chart"></div>
+                    <div class="dashboard-card">
+                        <h3>Quick Links</h3>
+                        <div class="quick-links">
+                            <a href="{{ url_for('standards_view') }}" class="quick-link">Browse Standards</a>
+                            <a href="{{ url_for('lessons_view') }}" class="quick-link">Browse Lessons</a>
+                            <a href="{{ url_for('visualization_view') }}" class="quick-link">View Visualization</a>
+                        </div>
                     </div>
                 </div>
-                
-                <!-- Mini visualization preview -->
-                <div class="visualization-preview">
-                    <h3>Curriculum Relationship Preview</h3>
-                    <div id="mini-visualization" class="mini-viz"></div>
-                    <p>
-                        <a href="{{ url_for('visualization_view') }}" class="button">Full Visualization</a>
-                    </p>
-                </div>
             </div>
-        </section>
+        </div>
     </main>
     
     <footer>
-        <p>Curriculum Visualization Tool &copy; 2023</p>
+        <p>&copy; 2023 Curriculum Visualization Tool</p>
     </footer>
     
     <!-- Load dashboard-specific JavaScript -->
