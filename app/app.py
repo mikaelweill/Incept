@@ -5,6 +5,7 @@ import ijson
 import requests
 from functools import lru_cache
 import logging
+import inspect
 
 app = Flask(__name__)
 
@@ -652,19 +653,7 @@ def get_random_question():
 @app.route('/api/verify-question', methods=['POST'])
 def verify_question():
     """
-    Verify the quality of a question using LLM
-    Expected body:
-    {
-        "question_text": "...",
-        "choices": [
-            {"text": "...", "is_correct": true},
-            {"text": "...", "is_correct": false},
-            ...
-        ],
-        "standard_code": "...",
-        "lesson_title": "...",
-        ...
-    }
+    Verify a question using the question grader.
     """
     try:
         # Get question data from request
@@ -676,22 +665,42 @@ def verify_question():
         # Import the QuestionGrader
         from src.services.grader import QuestionGrader
         
+        # Debug print to verify the QuestionGrader's actual file path
+        print(f"QuestionGrader imported from: {inspect.getfile(QuestionGrader)}")
+        
         # Initialize grader
-        grader = QuestionGrader()
+        # Make sure we're using the fixed version without proxies
+        try:
+            grader = QuestionGrader()
+            print("QuestionGrader initialized successfully")
+        except Exception as init_error:
+            import traceback
+            print(f"Error initializing QuestionGrader: {str(init_error)}")
+            print(traceback.format_exc())
+            return jsonify({'error': f"Failed to initialize question grader: {str(init_error)}"}), 500
         
         # Grade the question
         # This is an async function, so we need to run it in an event loop
         import asyncio
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(grader.grade_question(question_data))
+        try:
+            print("Starting question grading...")
+            result = loop.run_until_complete(grader.grade_question(question_data))
+            print("Question graded successfully")
+        except Exception as grading_error:
+            import traceback
+            print(f"Error during question grading: {str(grading_error)}")
+            print(traceback.format_exc())
+            loop.close()
+            return jsonify({'error': f"Grading failed: {str(grading_error)}"}), 500
         loop.close()
         
         return jsonify(result)
         
     except Exception as e:
         logger.error(f"Error verifying question: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': f"Verification failed: {str(e)}"}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5001) 

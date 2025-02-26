@@ -186,34 +186,287 @@ document.addEventListener('DOMContentLoaded', function() {
         // so we'll handle this differently - clear the choices container first
         choicesContainer.innerHTML = '';
         
-        // For curriculum questions, the choices are embedded in the question text
-        // Just display a note about choices being in the question text
-        const choiceDiv = document.createElement('div');
-        choiceDiv.className = 'choice-item';
-        choiceDiv.innerHTML = '<i>Note: This question from the curriculum has answer choices embedded in the question text.</i>';
-        choicesContainer.appendChild(choiceDiv);
+        // Create a notification about curriculum questions
+        const choiceHeader = document.createElement('div');
+        choiceHeader.className = 'choice-header';
+        choiceHeader.innerHTML = '<h4>Answer Choices</h4><p><i>This question from the curriculum has answer choices embedded in the question text. Attempting to extract and identify them:</i></p>';
+        choicesContainer.appendChild(choiceHeader);
         
         // Parse the question to look for certain patterns that might indicate choices
         const questionTextContent = question.question_text || '';
         
-        // Look for bullet points that might indicate choices
-        if (questionTextContent.includes('- ')) {
+        // --- Enhanced Answer Extraction Logic ---
+        
+        let foundChoices = false;
+        let correctAnswerFound = false;
+        
+        // 1. Look for bullet points with letters/numbers that might indicate multiple choice
+        const letterBulletRegex = /^[A-D]\.\s+(.+)$/gmi;
+        const numberBulletRegex = /^[1-4]\.\s+(.+)$/gmi;
+        
+        // Cache the lines for reuse
+        const lines = questionTextContent.split('\n');
+        
+        // Look for multiple choice with A, B, C, D format
+        let letterChoices = [];
+        lines.forEach(line => {
+            const trimmedLine = line.trim();
+            const letterMatch = trimmedLine.match(/^([A-D])\.\s+(.+)$/i);
+            
+            if (letterMatch) {
+                foundChoices = true;
+                
+                const letter = letterMatch[1];
+                const choiceText = letterMatch[2];
+                
+                // Check if this is likely the correct answer
+                const isLikelyCorrect = 
+                    choiceText.toLowerCase().includes('correct') || 
+                    line.includes('✓') ||
+                    line.includes('✅') ||
+                    line.includes('*correct*') ||
+                    line.includes('**correct**') ||
+                    trimmedLine.endsWith('(correct)') ||
+                    trimmedLine.endsWith('(Correct)') ||
+                    trimmedLine.endsWith('(RIGHT)') ||
+                    trimmedLine.endsWith('(right)');
+                
+                letterChoices.push({
+                    letter,
+                    text: choiceText,
+                    isCorrect: isLikelyCorrect
+                });
+                
+                if (isLikelyCorrect) {
+                    correctAnswerFound = true;
+                }
+            }
+        });
+        
+        // Display letter choices if found
+        if (letterChoices.length > 0) {
             const choiceExplanation = document.createElement('div');
             choiceExplanation.className = 'choice-item';
-            choiceExplanation.innerHTML = '<strong>Possible choices detected:</strong> (identified from bullet points in question text)';
+            choiceExplanation.innerHTML = '<strong>Multiple choice options detected:</strong>';
             choicesContainer.appendChild(choiceExplanation);
             
-            // Extract and display possible choices (this is a simple heuristic)
-            const lines = questionTextContent.split('\n');
-            lines.forEach(line => {
-                if (line.trim().startsWith('- ')) {
-                    const choiceText = line.trim().substring(2);
-                    const choiceOption = document.createElement('div');
-                    choiceOption.className = 'choice-item';
-                    choiceOption.innerHTML = `• ${choiceText}`;
-                    choicesContainer.appendChild(choiceOption);
+            letterChoices.forEach(choice => {
+                const choiceOption = document.createElement('div');
+                choiceOption.className = `choice-item ${choice.isCorrect ? 'correct' : ''}`;
+                
+                if (choice.isCorrect) {
+                    choiceOption.innerHTML = `<strong>${choice.letter}.</strong> ${choice.text} <span class="correct-indicator">✓ CORRECT</span>`;
+                } else {
+                    choiceOption.innerHTML = `<strong>${choice.letter}.</strong> ${choice.text}`;
                 }
+                
+                choicesContainer.appendChild(choiceOption);
             });
+        }
+        
+        // 2. Check for answer designations in the text (e.g., "The answer is C")
+        if (!correctAnswerFound) {
+            const answerDesignations = [
+                /The\s+correct\s+answer\s+is\s+([A-D])/i,
+                /The\s+answer\s+is\s+([A-D])/i,
+                /Correct\s+answer:\s+([A-D])/i,
+                /Answer:\s+([A-D])/i
+            ];
+            
+            let correctLetter = null;
+            
+            for (const regex of answerDesignations) {
+                const match = questionTextContent.match(regex);
+                if (match) {
+                    correctLetter = match[1];
+                    break;
+                }
+            }
+            
+            // If we found a letter designation and we have letter choices, mark the correct one
+            if (correctLetter && letterChoices.length > 0) {
+                const correctIndex = letterChoices.findIndex(choice => 
+                    choice.letter.toLowerCase() === correctLetter.toLowerCase());
+                
+                if (correctIndex !== -1) {
+                    correctAnswerFound = true;
+                    
+                    // Clear existing choices and redisplay with correct one highlighted
+                    // We need to remove the content after the header
+                    const childrenToRemove = Array.from(choicesContainer.children).slice(1);
+                    childrenToRemove.forEach(child => child.remove());
+                    
+                    const choiceExplanation = document.createElement('div');
+                    choiceExplanation.className = 'choice-item';
+                    choiceExplanation.innerHTML = `<strong>Multiple choice options (with correct answer marked):</strong>`;
+                    choicesContainer.appendChild(choiceExplanation);
+                    
+                    letterChoices.forEach((choice, index) => {
+                        const choiceOption = document.createElement('div');
+                        const isCorrect = index === correctIndex;
+                        choiceOption.className = `choice-item ${isCorrect ? 'correct' : ''}`;
+                        
+                        if (isCorrect) {
+                            choiceOption.innerHTML = `<strong>${choice.letter}.</strong> ${choice.text} <span class="correct-indicator">✓ CORRECT</span>`;
+                        } else {
+                            choiceOption.innerHTML = `<strong>${choice.letter}.</strong> ${choice.text}`;
+                        }
+                        
+                        choicesContainer.appendChild(choiceOption);
+                    });
+                }
+            }
+        }
+        
+        // 3. Look for options in a table format (common in curriculum questions)
+        if (!foundChoices && questionTextContent.includes('|')) {
+            // Look for markdown tables
+            const tableRows = questionTextContent.split('\n').filter(line => line.trim().startsWith('|'));
+            
+            if (tableRows.length > 1) {
+                foundChoices = true;
+                const tableExplanation = document.createElement('div');
+                tableExplanation.className = 'choice-item';
+                tableExplanation.innerHTML = '<strong>Choices detected in table format:</strong>';
+                choicesContainer.appendChild(tableExplanation);
+                
+                // Skip header row and separator row
+                const startIdx = tableRows[1].includes('---') ? 2 : 1;
+                
+                for (let i = startIdx; i < tableRows.length; i++) {
+                    const cells = tableRows[i].split('|').filter(cell => cell.trim() !== '');
+                    if (cells.length > 0) {
+                        const rowText = cells.map(cell => cell.trim()).join(' - ');
+                        
+                        // Check if this row might be the correct answer
+                        const isLikelyCorrect = 
+                            rowText.toLowerCase().includes('correct') || 
+                            rowText.includes('✓') ||
+                            rowText.includes('✅') ||
+                            rowText.includes('*correct*') ||
+                            rowText.includes('**correct**');
+                        
+                        const choiceOption = document.createElement('div');
+                        choiceOption.className = `choice-item ${isLikelyCorrect ? 'correct' : ''}`;
+                        
+                        if (isLikelyCorrect) {
+                            choiceOption.innerHTML = `• ${rowText} <span class="correct-indicator">✓ CORRECT</span>`;
+                            correctAnswerFound = true;
+                        } else {
+                            choiceOption.innerHTML = `• ${rowText}`;
+                        }
+                        
+                        choicesContainer.appendChild(choiceOption);
+                    }
+                }
+            }
+        }
+        
+        // 4. Look for true/false questions 
+        if (!foundChoices && (questionTextContent.toLowerCase().includes('true or false') || 
+                              questionTextContent.toLowerCase().includes('true/false'))) {
+            foundChoices = true;
+            const tfExplanation = document.createElement('div');
+            tfExplanation.className = 'choice-item';
+            tfExplanation.innerHTML = '<strong>True/False question detected:</strong>';
+            choicesContainer.appendChild(tfExplanation);
+            
+            // Try to determine if TRUE or FALSE is the correct answer
+            const isTrue = 
+                questionTextContent.toLowerCase().includes('the answer is true') ||
+                questionTextContent.toLowerCase().includes('correct answer is true') ||
+                questionTextContent.toLowerCase().includes('answer: true');
+                
+            const isFalse = 
+                questionTextContent.toLowerCase().includes('the answer is false') ||
+                questionTextContent.toLowerCase().includes('correct answer is false') ||
+                questionTextContent.toLowerCase().includes('answer: false');
+            
+            // Add True option
+            const trueOption = document.createElement('div');
+            trueOption.className = `choice-item ${isTrue ? 'correct' : ''}`;
+            if (isTrue) {
+                trueOption.innerHTML = `<strong>TRUE</strong> <span class="correct-indicator">✓ CORRECT</span>`;
+                correctAnswerFound = true;
+            } else {
+                trueOption.innerHTML = `<strong>TRUE</strong>`;
+            }
+            choicesContainer.appendChild(trueOption);
+            
+            // Add False option
+            const falseOption = document.createElement('div');
+            falseOption.className = `choice-item ${isFalse ? 'correct' : ''}`;
+            if (isFalse) {
+                falseOption.innerHTML = `<strong>FALSE</strong> <span class="correct-indicator">✓ CORRECT</span>`;
+                correctAnswerFound = true;
+            } else {
+                falseOption.innerHTML = `<strong>FALSE</strong>`;
+            }
+            choicesContainer.appendChild(falseOption);
+        }
+        
+        // 5. Last resort - scan for bold or emphasized text that might indicate correct answers
+        if (!correctAnswerFound) {
+            // Look for markdown emphasis that might indicate the correct answer
+            const emphasisPatterns = [
+                { regex: /\*\*([^*]+)\*\*/g, format: 'bold' },    // Bold: **text**
+                { regex: /\*([^*]+)\*/g, format: 'italic' },      // Italic: *text*
+                { regex: /__([^_]+)__/g, format: 'underline' },   // Underline: __text__
+                { regex: /~~([^~]+)~~/g, format: 'strikethrough' } // Strikethrough: ~~text~~
+            ];
+            
+            let emphasisMatches = [];
+            
+            for (const pattern of emphasisPatterns) {
+                const matches = [...questionTextContent.matchAll(pattern.regex)];
+                if (matches.length > 0) {
+                    matches.forEach(match => {
+                        emphasisMatches.push({
+                            text: match[1],
+                            format: pattern.format
+                        });
+                    });
+                }
+            }
+            
+            if (emphasisMatches.length > 0) {
+                const emphasisExplanation = document.createElement('div');
+                emphasisExplanation.className = 'choice-item';
+                emphasisExplanation.innerHTML = '<strong>Potential answers detected from emphasized text:</strong>';
+                choicesContainer.appendChild(emphasisExplanation);
+                
+                emphasisMatches.forEach(match => {
+                    const choiceOption = document.createElement('div');
+                    choiceOption.className = 'choice-item correct'; // We assume emphasized text is likely correct
+                    choiceOption.innerHTML = `• ${match.text} <span class="correct-indicator">${match.format.toUpperCase()} - Likely Answer</span>`;
+                    choicesContainer.appendChild(choiceOption);
+                });
+                
+                correctAnswerFound = true;
+            }
+        }
+        
+        // If we still haven't found answers, add a more explicit notice
+        if (!foundChoices) {
+            const noChoicesDiv = document.createElement('div');
+            noChoicesDiv.className = 'choice-item';
+            noChoicesDiv.innerHTML = `
+                <strong>Note:</strong> This question doesn't have clearly formatted answer choices.
+                <ul>
+                    <li>Check the question text above for any potential answer choices</li>
+                    <li>The question may be open-ended or require written responses</li>
+                    <li>Consider reviewing the standard description for context</li>
+                </ul>
+            `;
+            choicesContainer.appendChild(noChoicesDiv);
+        } else if (!correctAnswerFound) {
+            const noCorrectDiv = document.createElement('div');
+            noCorrectDiv.className = 'choice-item warning';
+            noCorrectDiv.innerHTML = `
+                <strong>Warning:</strong> Couldn't automatically identify which answer is correct.
+                <p>Review the question text carefully to determine the correct answer.</p>
+            `;
+            choicesContainer.appendChild(noCorrectDiv);
         }
         
         // Display metadata
